@@ -47,12 +47,12 @@ export class GameScene {
 
     this.#playerPaddleMaterial = createPaddleMaterial(0x45d7ff);
     this.#playerPaddle = createPaddle(this.#playerPaddleMaterial);
-    this.#playerPaddle.add(createBufferZoneIndicator(0x45d7ff, -paddle.visibleSize.z));
+    this.#playerPaddle.add(createForgivingHitboxIndicator(0x45d7ff, -1));
     this.#scene.add(this.#playerPaddle);
 
     this.#opponentPaddleMaterial = createPaddleMaterial(0xff9d38);
     this.#opponentPaddle = createPaddle(this.#opponentPaddleMaterial);
-    this.#opponentPaddle.add(createBufferZoneIndicator(0xff9d38, paddle.visibleSize.z));
+    this.#opponentPaddle.add(createForgivingHitboxIndicator(0xff9d38, 1));
     this.#scene.add(this.#opponentPaddle);
 
     const ballGeometry = new THREE.SphereGeometry(ball.radius, 24, 16);
@@ -214,16 +214,17 @@ function createPaddleMovementArea(
   return new THREE.LineLoop(geometry, material);
 }
 
-function createBufferZoneIndicator(color: THREE.ColorRepresentation, zOffset: number): THREE.LineLoop {
-  const halfWidth = paddle.visibleSize.x / 2 + collision.forgivingHitbox.x + collision.bufferZone.x;
-  const halfHeight = paddle.visibleSize.y / 2 + collision.forgivingHitbox.y + collision.bufferZone.y;
+function createForgivingHitboxIndicator(color: THREE.ColorRepresentation, zDirection: -1 | 1): THREE.LineLoop {
+  const halfWidth = paddle.visibleSize.x / 2 + collision.forgivingHitbox.x;
+  const halfHeight = paddle.visibleSize.y / 2 + collision.forgivingHitbox.y;
+  const zOffset = zDirection * (paddle.visibleSize.z / 2 + collision.forgivingHitbox.z);
   const geometry = new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(-halfWidth, -halfHeight, zOffset),
     new THREE.Vector3(halfWidth, -halfHeight, zOffset),
     new THREE.Vector3(halfWidth, halfHeight, zOffset),
     new THREE.Vector3(-halfWidth, halfHeight, zOffset),
   ]);
-  const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.18 });
+  const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.24 });
 
   return new THREE.LineLoop(geometry, material);
 }
