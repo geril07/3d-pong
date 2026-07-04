@@ -589,10 +589,12 @@ function resolvePaddleCollision(
   const contactTime = clamp((contactCenterZ - previousBall.position.z) / zDelta, 0, 1);
   const contactPoint = interpolate(previousBall.position, candidateBall.position, contactTime);
 
-  const nearestX = clamp(contactPoint.x, hitbox.minX, hitbox.maxX);
-  const nearestY = clamp(contactPoint.y, hitbox.minY, hitbox.maxY);
-
-  if (Math.hypot(contactPoint.x - nearestX, contactPoint.y - nearestY) > previousBall.radius) {
+  if (
+    contactPoint.x < hitbox.minX ||
+    contactPoint.x > hitbox.maxX ||
+    contactPoint.y < hitbox.minY ||
+    contactPoint.y > hitbox.maxY
+  ) {
     return null;
   }
 
