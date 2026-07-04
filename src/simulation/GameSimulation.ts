@@ -153,8 +153,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     serveSpeed: 3.7,
     minSpeed: 2.6,
     maxSpeed: 7.2,
-    serveX: 0.75,
-    serveY: 0.45,
+    serveX: 0.35,
+    serveY: 0.18,
   },
   paddle: {
     visibleSize: {
@@ -590,10 +590,10 @@ function resolvePaddleCollision(
   const contactPoint = interpolate(previousBall.position, candidateBall.position, contactTime);
 
   if (
-    contactPoint.x < hitbox.minX ||
-    contactPoint.x > hitbox.maxX ||
-    contactPoint.y < hitbox.minY ||
-    contactPoint.y > hitbox.maxY
+    contactPoint.x < hitbox.minX - previousBall.radius ||
+    contactPoint.x > hitbox.maxX + previousBall.radius ||
+    contactPoint.y < hitbox.minY - previousBall.radius ||
+    contactPoint.y > hitbox.maxY + previousBall.radius
   ) {
     return null;
   }

@@ -166,6 +166,22 @@ describe("stepGame", () => {
     expect(served.events).toContainEqual({ type: "serve", toward: "player" });
   });
 
+  it("serves toward a reachable point on the player side", () => {
+    let state = setInputCaptured(createInitialGameState(), true);
+
+    state = advanceGame(state, DEFAULT_GAME_CONFIG.serve.delaySeconds);
+
+    while (state.phase === "running" && state.ball.position.z < playerContactCenterZ()) {
+      state = stepGame(state, EMPTY_INPUT, 1 / 60);
+    }
+
+    const halfHitboxWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x;
+    const halfHitboxHeight = DEFAULT_GAME_CONFIG.paddle.visibleSize.y / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.y;
+
+    expect(state.ball.position.x).toBeLessThanOrEqual(DEFAULT_GAME_CONFIG.paddle.playerArea.maxX + halfHitboxWidth);
+    expect(state.ball.position.y).toBeLessThanOrEqual(DEFAULT_GAME_CONFIG.paddle.playerArea.maxY + halfHitboxHeight);
+  });
+
   it("ends the match when either side reaches the target score", () => {
     const playerPlane = DEFAULT_GAME_CONFIG.arena.depth / 2 + DEFAULT_GAME_CONFIG.arena.scoringPlaneOffset;
     const state = withBall(
@@ -256,6 +272,18 @@ describe("stepGame", () => {
     const forgivingOffset = DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x * 0.5;
     const next = stepGame(
       createPlayerHitState({ x: visibleHalfWidth + forgivingOffset, y: 0 }, { x: 0, y: 0 }),
+      EMPTY_INPUT,
+      0.05,
+    );
+
+    expect(next.ball.velocity.z).toBeLessThan(0);
+    expect(next.events).toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
+  });
+
+  it("accounts for ball radius at the paddle hitbox edge", () => {
+    const halfHitboxHeight = DEFAULT_GAME_CONFIG.paddle.visibleSize.y / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.y;
+    const next = stepGame(
+      createPlayerHitState({ x: 0, y: halfHitboxHeight + DEFAULT_GAME_CONFIG.ball.radius * 0.5 }, { x: 0, y: 0 }),
       EMPTY_INPUT,
       0.05,
     );
