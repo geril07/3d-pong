@@ -18,11 +18,13 @@ const canvas = requireElement<HTMLCanvasElement>("#game-canvas");
 const statusPanel = requireElement<HTMLDivElement>("#status-panel");
 const statusLabel = requireElement<HTMLDivElement>("#status-label");
 const statusHelp = requireElement<HTMLDivElement>("#status-help");
+const scorePanel = requireElement<HTMLDivElement>("#score-panel");
 const playerScore = requireElement<HTMLSpanElement>("#player-score");
 const opponentScore = requireElement<HTMLSpanElement>("#opponent-score");
 
 const runtime = new GameRuntime();
 const scene = new GameScene(canvas);
+let scoreFeedbackTimeout: number | undefined;
 
 function syncStatus(): void {
   const snapshot = runtime.getSnapshot();
@@ -33,6 +35,12 @@ function syncStatus(): void {
   opponentScore.textContent = String(snapshot.score.opponent);
   statusPanel.classList.toggle("is-paused", isInputMissing || isMatchOver);
   statusPanel.classList.toggle("is-running", snapshot.phase === "running" || snapshot.phase === "serve-delay");
+  statusPanel.classList.toggle("is-serving", snapshot.phase === "serve-delay");
+  statusPanel.classList.toggle("is-match-over", isMatchOver);
+
+  if (snapshot.events.some((event) => event.type === "score")) {
+    triggerScoreFeedback();
+  }
 
   if (snapshot.phase === "match-over") {
     statusLabel.textContent = `${formatSide(snapshot.winner)} wins`;
@@ -51,6 +59,14 @@ function syncStatus(): void {
     snapshot.phase === "running"
       ? "Gameplay is active. Press Escape to pause/release input."
       : "Click the arena to capture mouse input. Simulation is paused.";
+}
+
+function triggerScoreFeedback(): void {
+  window.clearTimeout(scoreFeedbackTimeout);
+  scorePanel.classList.add("is-scoring");
+  scoreFeedbackTimeout = window.setTimeout(() => {
+    scorePanel.classList.remove("is-scoring");
+  }, 420);
 }
 
 function formatSide(side: "player" | "opponent" | null): string {
