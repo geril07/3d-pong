@@ -8,13 +8,31 @@ import {
   stepGame,
   type BallState,
   type BotConfig,
+  type CollisionConfig,
   type GameConfig,
   type GameState,
+  type PaddleState,
 } from "./GameSimulation";
 
 const RUNNING_STATE = createRunningState();
 
 describe("stepGame", () => {
+  it("initializes with input paused and a deterministic pending first serve", () => {
+    const state = createInitialGameState();
+
+    expect(state.phase).toBe("input-not-captured");
+    expect(state.phaseBeforePause).toBe("serve-delay");
+    expect(state.serveTimerSeconds).toBe(DEFAULT_GAME_CONFIG.serve.delaySeconds);
+    expect(state.nextServeToward).toBe("player");
+    expect(state.score).toEqual({ player: 0, opponent: 0 });
+    expect(state.winner).toBeNull();
+    expect(state.ball.position).toEqual({ x: 0, y: DEFAULT_GAME_CONFIG.arena.height / 2, z: 0 });
+    expect(state.ball.velocity).toEqual({ x: 0, y: 0, z: 0 });
+    expect(state.playerPaddle.position).toEqual(centerOf(DEFAULT_GAME_CONFIG.paddle.playerArea));
+    expect(state.opponentPaddle.position).toEqual(centerOf(DEFAULT_GAME_CONFIG.paddle.opponentArea));
+    expect(state.events).toEqual([]);
+  });
+
   it("moves the ball from velocity while running", () => {
     const state = withBall(RUNNING_STATE, {
       position: { x: 0, y: 1, z: 0 },
@@ -28,12 +46,65 @@ describe("stepGame", () => {
     expect(next.ball.position.z).toBeCloseTo(-0.3);
   });
 
+  it("clamps large delta times before moving gameplay", () => {
+    const state = withBall(RUNNING_STATE, {
+      position: { x: 0, y: 1.5, z: 0 },
+      velocity: { x: 10, y: 0, z: 0 },
+    });
+
+    const next = stepGame(state, { playerMovement: { x: 99, y: 0 } }, 1);
+
+    expect(next.activeTimeSeconds).toBeCloseTo(0.1);
+    expect(next.ball.position.x).toBeCloseTo(1);
+    expect(next.playerPaddle.position.x).toBeCloseTo(RUNNING_STATE.playerPaddle.position.x + 0.8);
+  });
+
+  it.each([0, -0.25])("ignores %s second delta times", (deltaSeconds) => {
+    const next = stepGame(RUNNING_STATE, { playerMovement: { x: 1, y: 1 } }, deltaSeconds);
+
+    expect(next.activeTimeSeconds).toBe(RUNNING_STATE.activeTimeSeconds);
+    expect(next.ball).toEqual(RUNNING_STATE.ball);
+    expect(next.playerPaddle).toEqual(RUNNING_STATE.playerPaddle);
+    expect(next.events).toEqual([]);
+  });
+
   it("does not move gameplay while input is not captured", () => {
     const state = createInitialGameState();
     const next = stepGame(state, EMPTY_INPUT, 0.1);
 
     expect(next.activeTimeSeconds).toBe(0);
     expect(next.ball.position).toEqual(state.ball.position);
+  });
+
+  it("pauses running gameplay and resumes the previous phase without advancing state", () => {
+    const paused = setInputCaptured(
+      {
+        ...RUNNING_STATE,
+        events: [{ type: "wall-bounce", axis: "x" }],
+      },
+      false,
+    );
+    const steppedWhilePaused = stepGame(paused, { playerMovement: { x: 1, y: 1 } }, 0.1);
+    const resumed = setInputCaptured(steppedWhilePaused, true);
+
+    expect(paused.phase).toBe("input-not-captured");
+    expect(paused.phaseBeforePause).toBe("running");
+    expect(paused.events).toEqual([]);
+    expect(steppedWhilePaused.activeTimeSeconds).toBe(RUNNING_STATE.activeTimeSeconds);
+    expect(steppedWhilePaused.ball).toEqual(RUNNING_STATE.ball);
+    expect(steppedWhilePaused.playerPaddle).toEqual(RUNNING_STATE.playerPaddle);
+    expect(resumed.phase).toBe("running");
+  });
+
+  it("does not count down a pending serve while input is not captured", () => {
+    const serving = setInputCaptured(createInitialGameState(), true);
+    const paused = setInputCaptured(serving, false);
+    const steppedWhilePaused = stepGame(paused, EMPTY_INPUT, 1);
+    const resumed = setInputCaptured(steppedWhilePaused, true);
+
+    expect(steppedWhilePaused.serveTimerSeconds).toBe(DEFAULT_GAME_CONFIG.serve.delaySeconds);
+    expect(steppedWhilePaused.ball.velocity).toEqual({ x: 0, y: 0, z: 0 });
+    expect(resumed.phase).toBe("serve-delay");
   });
 
   it("starts with a deterministic serve delay toward the player side", () => {
@@ -54,6 +125,20 @@ describe("stepGame", () => {
 
     expect(next.ball.position.x).toBeLessThan(maxX);
     expect(next.ball.velocity.x).toBeLessThan(0);
+    expect(next.events).toContainEqual({ type: "wall-bounce", axis: "x" });
+  });
+
+  it("reflects from the left side wall using the ball radius as the boundary", () => {
+    const minX = -DEFAULT_GAME_CONFIG.arena.width / 2 + DEFAULT_GAME_CONFIG.ball.radius;
+    const state = withBall(RUNNING_STATE, {
+      position: { x: minX + 0.01, y: 1.5, z: 0 },
+      velocity: { x: -1, y: 0, z: 0 },
+    });
+
+    const next = stepGame(state, EMPTY_INPUT, 0.05);
+
+    expect(next.ball.position.x).toBeGreaterThan(minX);
+    expect(next.ball.velocity.x).toBeGreaterThan(0);
     expect(next.events).toContainEqual({ type: "wall-bounce", axis: "x" });
   });
 
@@ -96,6 +181,43 @@ describe("stepGame", () => {
     expect(next.playerPaddle.position.y).toBeGreaterThanOrEqual(RUNNING_STATE.playerPaddle.movementArea.minY);
   });
 
+  it("clamps player paddle movement at all edges and derives velocity from clamped movement", () => {
+    const area = DEFAULT_GAME_CONFIG.paddle.playerArea;
+    const deltaSeconds = 0.05;
+    const smoothing = DEFAULT_GAME_CONFIG.paddle.velocitySmoothing;
+    const nearMax = withPlayerPaddle(RUNNING_STATE, {
+      position: { x: area.maxX - 0.01, y: area.maxY - 0.01, z: area.z },
+      velocity: { x: 0, y: 0, z: 0 },
+    });
+    const nearMin = withPlayerPaddle(RUNNING_STATE, {
+      position: { x: area.minX + 0.01, y: area.minY + 0.01, z: area.z },
+      velocity: { x: 0, y: 0, z: 0 },
+    });
+
+    const clampedMax = stepGame(nearMax, { playerMovement: { x: 99, y: 99 } }, deltaSeconds);
+    const clampedMin = stepGame(nearMin, { playerMovement: { x: -99, y: -99 } }, deltaSeconds);
+
+    expect(clampedMax.playerPaddle.position).toEqual({ x: area.maxX, y: area.maxY, z: area.z });
+    expect(clampedMax.playerPaddle.velocity.x).toBeCloseTo((0.01 / deltaSeconds) * smoothing);
+    expect(clampedMax.playerPaddle.velocity.y).toBeCloseTo((0.01 / deltaSeconds) * smoothing);
+    expect(clampedMin.playerPaddle.position).toEqual({ x: area.minX, y: area.minY, z: area.z });
+    expect(clampedMin.playerPaddle.velocity.x).toBeCloseTo((-0.01 / deltaSeconds) * smoothing);
+    expect(clampedMin.playerPaddle.velocity.y).toBeCloseTo((-0.01 / deltaSeconds) * smoothing);
+  });
+
+  it("does not turn outward input spikes at a movement edge into paddle velocity", () => {
+    const area = DEFAULT_GAME_CONFIG.paddle.playerArea;
+    const state = withPlayerPaddle(RUNNING_STATE, {
+      position: { x: area.maxX, y: area.maxY, z: area.z },
+      velocity: { x: 0, y: 0, z: 0 },
+    });
+
+    const next = stepGame(state, { playerMovement: { x: 99, y: 99 } }, 0.05);
+
+    expect(next.playerPaddle.position).toEqual({ x: area.maxX, y: area.maxY, z: area.z });
+    expect(next.playerPaddle.velocity).toEqual({ x: 0, y: 0, z: 0 });
+  });
+
   it("scores for the opponent only after the ball crosses the player Scoring Plane", () => {
     const playerPlane = DEFAULT_GAME_CONFIG.arena.depth / 2 + DEFAULT_GAME_CONFIG.arena.scoringPlaneOffset;
     const beforePlane = stepGame(
@@ -125,6 +247,62 @@ describe("stepGame", () => {
     expect(crossedPlane.events).toContainEqual({ type: "score", scoringSide: "opponent", lostSide: "player" });
   });
 
+  it("does not score while the ball center is exactly on either Scoring Plane", () => {
+    const playerPlane = DEFAULT_GAME_CONFIG.arena.depth / 2 + DEFAULT_GAME_CONFIG.arena.scoringPlaneOffset;
+    const opponentPlane = -DEFAULT_GAME_CONFIG.arena.depth / 2 - DEFAULT_GAME_CONFIG.arena.scoringPlaneOffset;
+
+    const atPlayerPlane = stepGame(
+      withBall(RUNNING_STATE, {
+        position: { x: 0, y: 1.5, z: playerPlane },
+        velocity: { x: 0, y: 0, z: 0 },
+      }),
+      EMPTY_INPUT,
+      0.05,
+    );
+    const atOpponentPlane = stepGame(
+      withBall(RUNNING_STATE, {
+        position: { x: 0, y: 1.5, z: opponentPlane },
+        velocity: { x: 0, y: 0, z: 0 },
+      }),
+      EMPTY_INPUT,
+      0.05,
+    );
+
+    expect(atPlayerPlane.score).toEqual({ player: 0, opponent: 0 });
+    expect(atPlayerPlane.phase).toBe("running");
+    expect(atOpponentPlane.score).toEqual({ player: 0, opponent: 0 });
+    expect(atOpponentPlane.phase).toBe("running");
+  });
+
+  it("scores for the player only after the ball crosses the opponent Scoring Plane", () => {
+    const opponentPlane = -DEFAULT_GAME_CONFIG.arena.depth / 2 - DEFAULT_GAME_CONFIG.arena.scoringPlaneOffset;
+    const beforePlane = stepGame(
+      withBall(RUNNING_STATE, {
+        position: { x: 0, y: 1.5, z: opponentPlane + 0.2 },
+        velocity: { x: 0, y: 0, z: -1 },
+      }),
+      EMPTY_INPUT,
+      0.05,
+    );
+
+    expect(beforePlane.score.player).toBe(0);
+    expect(beforePlane.phase).toBe("running");
+
+    const crossedPlane = stepGame(
+      withBall(RUNNING_STATE, {
+        position: { x: 0, y: 1.5, z: opponentPlane + 0.01 },
+        velocity: { x: 0, y: 0, z: -1 },
+      }),
+      EMPTY_INPUT,
+      0.05,
+    );
+
+    expect(crossedPlane.score.player).toBe(1);
+    expect(crossedPlane.phase).toBe("serve-delay");
+    expect(crossedPlane.nextServeToward).toBe("opponent");
+    expect(crossedPlane.events).toContainEqual({ type: "score", scoringSide: "player", lostSide: "opponent" });
+  });
+
   it("resets the ball and both paddles after a score", () => {
     const playerPlane = DEFAULT_GAME_CONFIG.arena.depth / 2 + DEFAULT_GAME_CONFIG.arena.scoringPlaneOffset;
     const movedState = {
@@ -135,16 +313,29 @@ describe("stepGame", () => {
       playerPaddle: {
         ...RUNNING_STATE.playerPaddle,
         position: { x: 2, y: 2.2, z: RUNNING_STATE.playerPaddle.position.z },
+        velocity: { x: 4, y: 3, z: 0 },
+      },
+      opponentPaddle: {
+        ...RUNNING_STATE.opponentPaddle,
+        position: { x: -1.5, y: 0.8, z: RUNNING_STATE.opponentPaddle.position.z },
+        velocity: { x: -2, y: 1, z: 0 },
+      },
+      bot: {
+        target: { x: 1.8, y: 2.4 },
       },
     };
 
     const next = stepGame(movedState, EMPTY_INPUT, 0.05);
     const reset = createInitialGameState();
 
+    expect(next.phase).toBe("serve-delay");
+    expect(next.serveTimerSeconds).toBe(DEFAULT_GAME_CONFIG.serve.delaySeconds);
     expect(next.ball.position).toEqual(reset.ball.position);
     expect(next.ball.velocity).toEqual({ x: 0, y: 0, z: 0 });
-    expect(next.playerPaddle.position).toEqual(reset.playerPaddle.position);
-    expect(next.opponentPaddle.position).toEqual(reset.opponentPaddle.position);
+    expect(next.playerPaddle).toEqual(reset.playerPaddle);
+    expect(next.opponentPaddle).toEqual(reset.opponentPaddle);
+    expect(next.bot).toEqual(reset.bot);
+    expect(next.events).toEqual([{ type: "score", scoringSide: "opponent", lostSide: "player" }]);
   });
 
   it("serves automatically after the configured delay toward the side that lost the point", () => {
@@ -164,6 +355,38 @@ describe("stepGame", () => {
     expect(served.phase).toBe("running");
     expect(served.ball.velocity.z).toBeGreaterThan(0);
     expect(served.events).toContainEqual({ type: "serve", toward: "player" });
+  });
+
+  it("serves toward the opponent after the bot loses the previous point", () => {
+    const scored = {
+      ...createInitialGameState(),
+      phase: "serve-delay" as const,
+      phaseBeforePause: "serve-delay" as const,
+      nextServeToward: "opponent" as const,
+      serveTimerSeconds: 0.05,
+    };
+
+    const served = stepGame(scored, EMPTY_INPUT, 0.05);
+
+    expect(served.phase).toBe("running");
+    expect(served.ball.velocity.z).toBeLessThan(0);
+    expect(served.events).toEqual([{ type: "serve", toward: "opponent" }]);
+  });
+
+  it("clears transient serve events on the next simulation step", () => {
+    const scored = {
+      ...createInitialGameState(),
+      phase: "serve-delay" as const,
+      phaseBeforePause: "serve-delay" as const,
+      nextServeToward: "player" as const,
+      serveTimerSeconds: 0.01,
+    };
+
+    const served = stepGame(scored, EMPTY_INPUT, 0.01);
+    const next = stepGame(served, EMPTY_INPUT, 0.01);
+
+    expect(served.events).toEqual([{ type: "serve", toward: "player" }]);
+    expect(next.events).toEqual([]);
   });
 
   it("serves toward a reachable point on the player side", () => {
@@ -217,12 +440,45 @@ describe("stepGame", () => {
     expect(restarted.winner).toBeNull();
   });
 
+  it("restarts non-match states to a fresh game while respecting input capture", () => {
+    const running = {
+      ...RUNNING_STATE,
+      score: { player: 2, opponent: 1 },
+      activeTimeSeconds: 12,
+    };
+
+    const capturedRestart = restartGame(running, true);
+    const uncapturedRestart = restartGame(running, false);
+
+    expect(capturedRestart.phase).toBe("serve-delay");
+    expect(capturedRestart.score).toEqual({ player: 0, opponent: 0 });
+    expect(capturedRestart.activeTimeSeconds).toBe(0);
+    expect(uncapturedRestart.phase).toBe("input-not-captured");
+    expect(uncapturedRestart.phaseBeforePause).toBe("serve-delay");
+  });
+
   it("bounces normally off the player paddle when paddle velocity is below the Drag-Hit threshold", () => {
     const next = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: 0, y: 0 }), EMPTY_INPUT, 0.05);
 
     expect(next.ball.velocity.z).toBeLessThan(0);
     expect(next.ball.velocity.x).toBeCloseTo(0);
     expect(next.ball.velocity.y).toBeCloseTo(0);
+    expect(next.events).toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
+  });
+
+  it("hits the player paddle when the ball tunnels across the paddle plane in one step", () => {
+    const contactZ = playerContactCenterZ();
+    const state = withBall(RUNNING_STATE, {
+      position: { x: RUNNING_STATE.playerPaddle.position.x, y: RUNNING_STATE.playerPaddle.position.y, z: contactZ - 1 },
+      velocity: { x: 0, y: 0, z: 30 },
+    });
+
+    const next = stepGame(state, EMPTY_INPUT, 0.1);
+
+    expect(next.phase).toBe("running");
+    expect(next.score).toEqual({ player: 0, opponent: 0 });
+    expect(next.ball.velocity.z).toBeLessThan(0);
+    expect(speedOf(next.ball.velocity)).toBeCloseTo(DEFAULT_GAME_CONFIG.ball.maxSpeed);
     expect(next.events).toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
   });
 
@@ -243,11 +499,28 @@ describe("stepGame", () => {
     expect(speedOf(dragging.ball.velocity)).toBeGreaterThan(speedOf(still.ball.velocity));
   });
 
+  it("uses negative Drag-Hit paddle velocity to pull the return left and down", () => {
+    const dragging = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: -5, y: -4 }), EMPTY_INPUT, 0.05);
+
+    expect(dragging.ball.velocity.x).toBeLessThan(0);
+    expect(dragging.ball.velocity.y).toBeLessThan(0);
+    expect(speedOf(dragging.ball.velocity)).toBeGreaterThan(3);
+  });
+
   it("ignores paddle jitter below the Drag-Hit threshold", () => {
     const jitter = DEFAULT_GAME_CONFIG.collision.dragSpeedThreshold * 0.5;
     const next = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: jitter, y: 0 }), EMPTY_INPUT, 0.05);
 
     expect(next.ball.velocity.x).toBeCloseTo(0);
+    expect(speedOf(next.ball.velocity)).toBeCloseTo(3);
+  });
+
+  it("does not apply Drag-Hit direction or speed at the exact anti-jitter threshold", () => {
+    const threshold = DEFAULT_GAME_CONFIG.collision.dragSpeedThreshold;
+    const next = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: threshold, y: 0 }), EMPTY_INPUT, 0.05);
+
+    expect(next.ball.velocity.x).toBeCloseTo(0);
+    expect(next.ball.velocity.y).toBeCloseTo(0);
     expect(speedOf(next.ball.velocity)).toBeCloseTo(3);
   });
 
@@ -269,7 +542,7 @@ describe("stepGame", () => {
 
   it("uses the configurable Forgiving Hitbox beyond the visible paddle", () => {
     const visibleHalfWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2;
-    const forgivingOffset = DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x * 0.5;
+    const forgivingOffset = DEFAULT_GAME_CONFIG.ball.radius + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x * 0.5;
     const next = stepGame(
       createPlayerHitState({ x: visibleHalfWidth + forgivingOffset, y: 0 }, { x: 0, y: 0 }),
       EMPTY_INPUT,
@@ -278,6 +551,24 @@ describe("stepGame", () => {
 
     expect(next.ball.velocity.z).toBeLessThan(0);
     expect(next.events).toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
+  });
+
+  it("misses the visible paddle when Forgiving Hitbox tuning is removed", () => {
+    const visibleHalfWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2;
+    const forgivingOffset = DEFAULT_GAME_CONFIG.ball.radius + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x * 0.5;
+    const config = collisionConfig({
+      forgivingHitbox: { x: 0, y: 0, z: 0 },
+    });
+
+    const next = stepGame(
+      createPlayerHitState({ x: visibleHalfWidth + forgivingOffset, y: 0 }, { x: 0, y: 0 }),
+      EMPTY_INPUT,
+      0.05,
+      config,
+    );
+
+    expect(next.ball.velocity.z).toBeGreaterThan(0);
+    expect(next.events).not.toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
   });
 
   it("accounts for ball radius at the paddle hitbox edge", () => {
@@ -290,6 +581,18 @@ describe("stepGame", () => {
 
     expect(next.ball.velocity.z).toBeLessThan(0);
     expect(next.events).toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
+  });
+
+  it("misses just outside the Forgiving Hitbox plus ball radius", () => {
+    const halfHitboxWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x;
+    const next = stepGame(
+      createPlayerHitState({ x: halfHitboxWidth + DEFAULT_GAME_CONFIG.ball.radius + 0.01, y: 0 }, { x: 0, y: 0 }),
+      EMPTY_INPUT,
+      0.05,
+    );
+
+    expect(next.ball.velocity.z).toBeGreaterThan(0);
+    expect(next.events).not.toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
   });
 
   it("does not treat the Buffer Zone as a collider", () => {
@@ -334,6 +637,50 @@ describe("stepGame", () => {
     );
   });
 
+  it("returns the Default Bot target to center while the ball is moving away", () => {
+    const area = DEFAULT_GAME_CONFIG.paddle.opponentArea;
+    const center = centerOf(area);
+    const state = {
+      ...createBotTrackingState({ x: 1.4, y: 2.2, z: -2 }),
+      opponentPaddle: {
+        ...RUNNING_STATE.opponentPaddle,
+        position: { x: area.maxX, y: area.maxY, z: area.z },
+      },
+      bot: { target: { x: area.maxX, y: area.maxY } },
+      ball: {
+        ...RUNNING_STATE.ball,
+        position: { x: 1.4, y: 2.2, z: -2 },
+        velocity: { x: 0.2, y: 0.1, z: 3 },
+      },
+    };
+
+    const next = stepGame(state, EMPTY_INPUT, 0.1, botConfig({ trackingError: 0, reactionSeconds: 0 }));
+
+    expect(next.bot.target).toEqual({ x: center.x, y: center.y });
+    expect(distance2D(next.opponentPaddle.position, center)).toBeLessThan(distance2D(state.opponentPaddle.position, center));
+  });
+
+  it("keeps the Default Bot target inside its Paddle Movement Area even with tracking error", () => {
+    const area = DEFAULT_GAME_CONFIG.paddle.opponentArea;
+    const state = createBotTrackingState({ x: 2.5, y: 2.9, z: -1.2 });
+
+    const next = stepGame(state, EMPTY_INPUT, 0.1, botConfig({ trackingError: 10, reactionSeconds: 0 }));
+
+    expect(next.bot.target.x).toBeGreaterThanOrEqual(area.minX);
+    expect(next.bot.target.x).toBeLessThanOrEqual(area.maxX);
+    expect(next.bot.target.y).toBeGreaterThanOrEqual(area.minY);
+    expect(next.bot.target.y).toBeLessThanOrEqual(area.maxY);
+  });
+
+  it("applies Default Bot reaction delay instead of snapping to a new target", () => {
+    const state = createBotTrackingState({ x: 1.4, y: 2.2, z: -1.2 });
+    const instant = stepGame(state, EMPTY_INPUT, 0.1, botConfig({ trackingError: 0, reactionSeconds: 0 }));
+    const delayed = stepGame(state, EMPTY_INPUT, 0.1, botConfig({ trackingError: 0, reactionSeconds: 1 }));
+
+    expect(distance2D(delayed.bot.target, state.bot.target)).toBeGreaterThan(0);
+    expect(distance2D(delayed.bot.target, state.bot.target)).toBeLessThan(distance2D(instant.bot.target, state.bot.target));
+  });
+
   it("lets the Default Bot miss because of movement limits", () => {
     const state = createOpponentHitState({ x: 1.8, y: 0 }, { x: 0, y: 0 });
     const next = stepGame(state, EMPTY_INPUT, 0.05, botConfig({ maxSpeed: 0, trackingError: 0, reactionSeconds: 0 }));
@@ -349,6 +696,16 @@ describe("stepGame", () => {
     expect(next.ball.velocity.z).toBeGreaterThan(0);
     expect(next.ball.velocity.x).toBeGreaterThan(0);
     expect(next.events).toContainEqual({ type: "paddle-hit", side: "opponent", speed: expect.any(Number) });
+  });
+
+  it("lets Default Bot paddle velocity add Drag-Hit speed through shared rules", () => {
+    const state = createOpponentHitState({ x: 0.27, y: 0.2 }, { x: 0, y: 0 });
+    const stillBot = stepGame(state, EMPTY_INPUT, 0.05, botConfig({ maxSpeed: 0, trackingError: 0, reactionSeconds: 0 }));
+    const movingBot = stepGame(state, EMPTY_INPUT, 0.05, botConfig({ maxSpeed: 5.4, trackingError: 0, reactionSeconds: 0 }));
+
+    expect(stillBot.events).toContainEqual({ type: "paddle-hit", side: "opponent", speed: expect.any(Number) });
+    expect(movingBot.events).toContainEqual({ type: "paddle-hit", side: "opponent", speed: expect.any(Number) });
+    expect(speedOf(movingBot.ball.velocity)).toBeGreaterThan(speedOf(stillBot.ball.velocity));
   });
 });
 
@@ -472,6 +829,34 @@ function speedOf(vector: { x: number; y: number; z: number }): number {
 
 function distance2D(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function centerOf(area: { minX: number; maxX: number; minY: number; maxY: number; z: number }): { x: number; y: number; z: number } {
+  return {
+    x: (area.minX + area.maxX) / 2,
+    y: (area.minY + area.maxY) / 2,
+    z: area.z,
+  };
+}
+
+function withPlayerPaddle(state: GameState, paddle: Partial<PaddleState>): GameState {
+  return {
+    ...state,
+    playerPaddle: {
+      ...state.playerPaddle,
+      ...paddle,
+    },
+  };
+}
+
+function collisionConfig(overrides: Partial<CollisionConfig>): GameConfig {
+  return {
+    ...DEFAULT_GAME_CONFIG,
+    collision: {
+      ...DEFAULT_GAME_CONFIG.collision,
+      ...overrides,
+    },
+  };
 }
 
 function botConfig(overrides: Partial<BotConfig>): GameConfig {
