@@ -1,11 +1,8 @@
 import * as THREE from "three";
 import type { GameSnapshot } from "../simulation/GameRuntime";
+import { DEFAULT_GAME_CONFIG, type MovementArea } from "../simulation/GameSimulation";
 
-const arena = {
-  width: 6,
-  height: 3.2,
-  depth: 8,
-};
+const { arena, ball, paddle } = DEFAULT_GAME_CONFIG;
 
 export class GameScene {
   readonly #renderer: THREE.WebGLRenderer;
@@ -13,6 +10,7 @@ export class GameScene {
   readonly #camera: THREE.PerspectiveCamera;
   readonly #ball: THREE.Mesh;
   readonly #playerPaddle: THREE.Mesh;
+  readonly #opponentPaddle: THREE.Mesh;
 
   constructor(canvas: HTMLCanvasElement) {
     this.#renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -34,20 +32,17 @@ export class GameScene {
 
     this.#scene.add(createArenaBounds());
     this.#scene.add(createFloorGrid());
-    this.#scene.add(createPaddleMovementArea());
+    this.#scene.add(createPaddleMovementArea(paddle.playerArea, 0x45d7ff));
 
     this.#playerPaddle = createPaddle(0x45d7ff);
-    this.#playerPaddle.position.set(0, 1.45, arena.depth / 2 - 0.25);
     this.#scene.add(this.#playerPaddle);
 
-    const opponentPaddle = createPaddle(0xff9d38);
-    opponentPaddle.position.set(0, 1.45, -arena.depth / 2 + 0.25);
-    this.#scene.add(opponentPaddle);
+    this.#opponentPaddle = createPaddle(0xff9d38);
+    this.#scene.add(this.#opponentPaddle);
 
-    const ballGeometry = new THREE.SphereGeometry(0.13, 24, 16);
+    const ballGeometry = new THREE.SphereGeometry(ball.radius, 24, 16);
     const ballMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f7ff, emissive: 0x1d2746 });
     this.#ball = new THREE.Mesh(ballGeometry, ballMaterial);
-    this.#ball.position.set(0, 1.45, 0);
     this.#scene.add(this.#ball);
 
     this.resize();
@@ -63,10 +58,10 @@ export class GameScene {
   }
 
   render(snapshot: GameSnapshot): void {
-    const time = snapshot.activeTimeSeconds;
-    this.#ball.position.x = Math.sin(time * 0.9) * 0.35;
-    this.#ball.position.y = 1.45 + Math.sin(time * 1.7) * 0.08;
-    this.#ball.rotation.y = time * 1.5;
+    setPosition(this.#ball, snapshot.ball.position);
+    setPosition(this.#playerPaddle, snapshot.playerPaddle.position);
+    setPosition(this.#opponentPaddle, snapshot.opponentPaddle.position);
+    this.#ball.rotation.y = snapshot.activeTimeSeconds * 1.5;
 
     const isCaptured = snapshot.phase === "running";
     this.#playerPaddle.scale.setScalar(isCaptured ? 1 : 0.96);
@@ -131,27 +126,25 @@ function createFloorGrid(): THREE.GridHelper {
   return grid;
 }
 
-function createPaddleMovementArea(): THREE.LineLoop {
-  const z = arena.depth / 2 - 0.22;
-  const minX = -2.2;
-  const maxX = 2.2;
-  const minY = 0.45;
-  const maxY = 2.55;
-
+function createPaddleMovementArea(area: MovementArea, color: THREE.ColorRepresentation): THREE.LineLoop {
   const geometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(minX, minY, z),
-    new THREE.Vector3(maxX, minY, z),
-    new THREE.Vector3(maxX, maxY, z),
-    new THREE.Vector3(minX, maxY, z),
+    new THREE.Vector3(area.minX, area.minY, area.z),
+    new THREE.Vector3(area.maxX, area.minY, area.z),
+    new THREE.Vector3(area.maxX, area.maxY, area.z),
+    new THREE.Vector3(area.minX, area.maxY, area.z),
   ]);
-  const material = new THREE.LineBasicMaterial({ color: 0x45d7ff, transparent: true, opacity: 0.4 });
+  const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4 });
 
   return new THREE.LineLoop(geometry, material);
 }
 
 function createPaddle(color: THREE.ColorRepresentation): THREE.Mesh {
-  const geometry = new THREE.BoxGeometry(0.9, 0.6, 0.12);
+  const geometry = new THREE.BoxGeometry(paddle.visibleSize.x, paddle.visibleSize.y, paddle.visibleSize.z);
   const material = new THREE.MeshStandardMaterial({ color, roughness: 0.38, metalness: 0.1 });
 
   return new THREE.Mesh(geometry, material);
+}
+
+function setPosition(object: THREE.Object3D, position: { x: number; y: number; z: number }): void {
+  object.position.set(position.x, position.y, position.z);
 }

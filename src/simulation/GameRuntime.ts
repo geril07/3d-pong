@@ -1,30 +1,27 @@
-export type GamePhase = "running" | "input-not-captured";
+import {
+  createInitialGameState,
+  EMPTY_INPUT,
+  setInputCaptured,
+  stepGame,
+  type GameSnapshot,
+  type GameState,
+  type InputSnapshot,
+} from "./GameSimulation";
 
-export type GameSnapshot = Readonly<{
-  phase: GamePhase;
-  activeTimeSeconds: number;
-}>;
+export type { GamePhase, GameSnapshot, InputSnapshot } from "./GameSimulation";
 
 export class GameRuntime {
-  #phase: GamePhase = "input-not-captured";
-  #activeTimeSeconds = 0;
+  #state: GameState = createInitialGameState();
 
   setInputCaptured(isCaptured: boolean): void {
-    this.#phase = isCaptured ? "running" : "input-not-captured";
+    this.#state = setInputCaptured(this.#state, isCaptured);
   }
 
-  update(deltaSeconds: number): void {
-    if (this.#phase !== "running") {
-      return;
-    }
-
-    this.#activeTimeSeconds += Math.min(Math.max(deltaSeconds, 0), 0.1);
+  update(deltaSeconds: number, input: InputSnapshot = EMPTY_INPUT): void {
+    this.#state = stepGame(this.#state, input, deltaSeconds);
   }
 
   getSnapshot(): GameSnapshot {
-    return {
-      phase: this.#phase,
-      activeTimeSeconds: this.#activeTimeSeconds,
-    };
+    return this.#state;
   }
 }

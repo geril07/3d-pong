@@ -2,6 +2,7 @@ import "./styles.css";
 import { PointerLockController } from "./browser/PointerLockController";
 import { GameRuntime } from "./simulation/GameRuntime";
 import { GameScene } from "./rendering/GameScene";
+import { DEFAULT_GAME_CONFIG } from "./simulation/GameSimulation";
 
 function requireElement<TElement extends Element>(selector: string): TElement {
   const element = document.querySelector<TElement>(selector);
@@ -33,10 +34,14 @@ function syncStatus(): void {
       : "Click the arena to capture mouse input. Simulation is paused.";
 }
 
-const pointerLock = new PointerLockController(canvas, (isCaptured) => {
-  runtime.setInputCaptured(isCaptured);
-  syncStatus();
-});
+const pointerLock = new PointerLockController(
+  canvas,
+  (isCaptured) => {
+    runtime.setInputCaptured(isCaptured);
+    syncStatus();
+  },
+  { worldUnitsPerPixel: DEFAULT_GAME_CONFIG.input.mouseWorldUnitsPerPixel },
+);
 
 pointerLock.start();
 syncStatus();
@@ -47,7 +52,7 @@ function animate(frameTimeMs: number): void {
   const deltaSeconds = (frameTimeMs - lastFrameTimeMs) / 1000;
   lastFrameTimeMs = frameTimeMs;
 
-  runtime.update(deltaSeconds);
+  runtime.update(deltaSeconds, pointerLock.consumeInput());
   scene.render(runtime.getSnapshot());
 
   requestAnimationFrame(animate);
