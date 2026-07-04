@@ -7,6 +7,8 @@ import {
   setInputCaptured,
   stepGame,
   type BallState,
+  type BotConfig,
+  type GameConfig,
   type GameState,
 } from "./GameSimulation";
 
@@ -282,6 +284,44 @@ describe("stepGame", () => {
     expect(Math.abs(next.playerPaddle.velocity.x)).toBeLessThanOrEqual(DEFAULT_GAME_CONFIG.paddle.maxSpeed);
     expect(speedOf(next.ball.velocity)).toBeLessThanOrEqual(DEFAULT_GAME_CONFIG.ball.maxSpeed);
   });
+
+  it("moves the Default Bot under speed limits without teleporting", () => {
+    const state = createBotTrackingState({ x: 2, y: 2.2, z: -2 });
+    const next = stepGame(state, EMPTY_INPUT, 0.1, botConfig({ trackingError: 0, reactionSeconds: 0 }));
+    const movedDistance = distance2D(state.opponentPaddle.position, next.opponentPaddle.position);
+
+    expect(movedDistance).toBeLessThanOrEqual(DEFAULT_GAME_CONFIG.bot.maxSpeed * 0.1 + 0.000001);
+    expect(next.opponentPaddle.position.x).toBeLessThanOrEqual(state.opponentPaddle.movementArea.maxX);
+    expect(next.opponentPaddle.position.y).toBeLessThanOrEqual(state.opponentPaddle.movementArea.maxY);
+  });
+
+  it("tracks a predicted intercept target for incoming balls", () => {
+    const state = createBotTrackingState({ x: 1.2, y: 2.1, z: -1.2 });
+    const next = stepGame(state, EMPTY_INPUT, 0.1, botConfig({ trackingError: 0, reactionSeconds: 0 }));
+
+    expect(next.bot.target.x).toBeGreaterThan(0);
+    expect(next.bot.target.y).toBeGreaterThan(state.opponentPaddle.position.y);
+    expect(distance2D(next.opponentPaddle.position, next.bot.target)).toBeLessThan(
+      distance2D(state.opponentPaddle.position, next.bot.target),
+    );
+  });
+
+  it("lets the Default Bot miss because of movement limits", () => {
+    const state = createOpponentHitState({ x: 1.8, y: 0 }, { x: 0, y: 0 });
+    const next = stepGame(state, EMPTY_INPUT, 0.05, botConfig({ maxSpeed: 0, trackingError: 0, reactionSeconds: 0 }));
+
+    expect(next.ball.velocity.z).toBeLessThan(0);
+    expect(next.events).not.toContainEqual({ type: "paddle-hit", side: "opponent", speed: expect.any(Number) });
+  });
+
+  it("returns bot hits through the shared collision and Drag-Hit rules", () => {
+    const state = createOpponentHitState({ x: 0.27, y: 0 }, { x: 0, y: 0 });
+    const next = stepGame(state, EMPTY_INPUT, 0.05, botConfig({ maxSpeed: 5.4, trackingError: 0, reactionSeconds: 0 }));
+
+    expect(next.ball.velocity.z).toBeGreaterThan(0);
+    expect(next.ball.velocity.x).toBeGreaterThan(0);
+    expect(next.events).toContainEqual({ type: "paddle-hit", side: "opponent", speed: expect.any(Number) });
+  });
 });
 
 function createRunningState(): GameState {
@@ -347,8 +387,73 @@ function playerContactCenterZ(): number {
   return paddleFaceZ - DEFAULT_GAME_CONFIG.ball.radius;
 }
 
+function createBotTrackingState(ballPosition: { x: number; y: number; z: number }): GameState {
+  return {
+    ...createRunningState(),
+    ball: {
+      ...createRunningState().ball,
+      position: ballPosition,
+      velocity: { x: 0.3, y: 0.2, z: -3 },
+    },
+  };
+}
+
+function createOpponentHitState(
+  contactOffset: { x: number; y: number },
+  paddleVelocity: { x: number; y: number },
+): GameState {
+  const state = createRunningState();
+  const contactZ = opponentContactCenterZ();
+  const paddle = {
+    ...state.opponentPaddle,
+    velocity: { x: paddleVelocity.x, y: paddleVelocity.y, z: 0 },
+  };
+
+  return {
+    ...state,
+    opponentPaddle: paddle,
+    bot: {
+      target: {
+        x: paddle.position.x + contactOffset.x,
+        y: paddle.position.y + contactOffset.y,
+      },
+    },
+    ball: {
+      ...state.ball,
+      position: {
+        x: paddle.position.x + contactOffset.x,
+        y: paddle.position.y + contactOffset.y,
+        z: contactZ + 0.03,
+      },
+      velocity: { x: 0, y: 0, z: -3 },
+    },
+  };
+}
+
+function opponentContactCenterZ(): number {
+  const paddleFaceZ =
+    DEFAULT_GAME_CONFIG.paddle.opponentArea.z +
+    (DEFAULT_GAME_CONFIG.paddle.visibleSize.z / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.z);
+
+  return paddleFaceZ + DEFAULT_GAME_CONFIG.ball.radius;
+}
+
 function speedOf(vector: { x: number; y: number; z: number }): number {
   return Math.hypot(vector.x, vector.y, vector.z);
+}
+
+function distance2D(a: { x: number; y: number }, b: { x: number; y: number }): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function botConfig(overrides: Partial<BotConfig>): GameConfig {
+  return {
+    ...DEFAULT_GAME_CONFIG,
+    bot: {
+      ...DEFAULT_GAME_CONFIG.bot,
+      ...overrides,
+    },
+  };
 }
 
 function withBall(

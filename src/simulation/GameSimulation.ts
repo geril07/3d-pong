@@ -58,6 +58,12 @@ export type CollisionConfig = Readonly<{
   maxDragSpeedBonus: number;
 }>;
 
+export type BotConfig = Readonly<{
+  maxSpeed: number;
+  reactionSeconds: number;
+  trackingError: number;
+}>;
+
 export type ScoreConfig = Readonly<{
   target: number;
 }>;
@@ -76,6 +82,7 @@ export type GameConfig = Readonly<{
   ball: BallConfig;
   paddle: PaddleConfig;
   collision: CollisionConfig;
+  bot: BotConfig;
   input: InputConfig;
   score: ScoreConfig;
   serve: ServeConfig;
@@ -91,6 +98,10 @@ export type PaddleState = Readonly<{
   position: Vector3;
   velocity: Vector3;
   movementArea: MovementArea;
+}>;
+
+export type BotState = Readonly<{
+  target: Vector2;
 }>;
 
 export type GameEvent = Readonly<{
@@ -124,6 +135,7 @@ export type GameState = Readonly<{
   ball: BallState;
   playerPaddle: PaddleState;
   opponentPaddle: PaddleState;
+  bot: BotState;
   events: readonly GameEvent[];
 }>;
 
@@ -185,6 +197,11 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     dragSpeedBonusPerVelocity: 0.18,
     maxDragSpeedBonus: 1.25,
   },
+  bot: {
+    maxSpeed: 5.4,
+    reactionSeconds: 0.18,
+    trackingError: 0.18,
+  },
   input: {
     mouseWorldUnitsPerPixel: 0.01,
   },
@@ -224,6 +241,7 @@ export function createInitialGameState(config = DEFAULT_GAME_CONFIG): GameState 
     },
     playerPaddle,
     opponentPaddle,
+    bot: createBotState(config.paddle.opponentArea),
     events: [],
   };
 }
@@ -281,10 +299,18 @@ export function stepGame(
     return stepServeDelay(state, playerPaddle, dt, config);
   }
 
+  const botStep = moveBot(state.opponentPaddle, state.bot, state.ball, state.activeTimeSeconds, dt, config);
   const ballStep = moveBall(state.ball, dt, config);
   const hitResult = resolvePaddleCollision(state.ball, ballStep.ball, playerPaddle, "player", config);
-  const ball = hitResult?.ball ?? ballStep.ball;
-  const events = hitResult ? [...ballStep.events, hitResult.event] : ballStep.events;
+  const opponentHitResult = hitResult
+    ? null
+    : resolvePaddleCollision(state.ball, ballStep.ball, botStep.paddle, "opponent", config);
+  const ball = hitResult?.ball ?? opponentHitResult?.ball ?? ballStep.ball;
+  const events = [
+    ...ballStep.events,
+    ...(hitResult ? [hitResult.event] : []),
+    ...(opponentHitResult ? [opponentHitResult.event] : []),
+  ];
   const scoreEvent = getScoreEvent(ball, config);
 
   if (scoreEvent) {
@@ -296,10 +322,8 @@ export function stepGame(
     activeTimeSeconds: state.activeTimeSeconds + dt,
     ball,
     playerPaddle,
-    opponentPaddle: {
-      ...state.opponentPaddle,
-      velocity: { x: 0, y: 0, z: 0 },
-    },
+    opponentPaddle: botStep.paddle,
+    bot: botStep.bot,
     events,
   };
 }
@@ -373,6 +397,7 @@ function applyScore(
     },
     playerPaddle: createPaddle(config.paddle.playerArea),
     opponentPaddle: createPaddle(config.paddle.opponentArea),
+    bot: createBotState(config.paddle.opponentArea),
     events: [scoreEvent],
   };
 }
@@ -428,13 +453,88 @@ function createPaddle(area: MovementArea): PaddleState {
   };
 }
 
+function createBotState(area: MovementArea): BotState {
+  return {
+    target: {
+      x: (area.minX + area.maxX) / 2,
+      y: (area.minY + area.maxY) / 2,
+    },
+  };
+}
+
+function moveBot(
+  paddle: PaddleState,
+  bot: BotState,
+  ball: BallState,
+  activeTimeSeconds: number,
+  deltaSeconds: number,
+  config: GameConfig,
+): Readonly<{ paddle: PaddleState; bot: BotState }> {
+  const desiredTarget = chooseBotTarget(ball, activeTimeSeconds, config);
+  const reactionAmount =
+    config.bot.reactionSeconds <= 0 ? 1 : clamp(deltaSeconds / config.bot.reactionSeconds, 0, 1);
+  const target = {
+    x: lerp(bot.target.x, desiredTarget.x, reactionAmount),
+    y: lerp(bot.target.y, desiredTarget.y, reactionAmount),
+  };
+  const nextPaddle = movePaddle(
+    paddle,
+    {
+      x: target.x - paddle.position.x,
+      y: target.y - paddle.position.y,
+    },
+    deltaSeconds,
+    config,
+    config.bot.maxSpeed,
+  );
+
+  return {
+    paddle: nextPaddle,
+    bot: { target },
+  };
+}
+
+function chooseBotTarget(ball: BallState, activeTimeSeconds: number, config: GameConfig): Vector2 {
+  const area = config.paddle.opponentArea;
+
+  if (ball.velocity.z >= 0) {
+    return {
+      x: (area.minX + area.maxX) / 2,
+      y: (area.minY + area.maxY) / 2,
+    };
+  }
+
+  const targetZ = getPaddleContactCenterZ("opponent", config);
+  const timeToPaddle = (targetZ - ball.position.z) / ball.velocity.z;
+
+  if (timeToPaddle <= 0) {
+    return {
+      x: paddleCenterX(area),
+      y: paddleCenterY(area),
+    };
+  }
+
+  const xBounds = getBallXBounds(ball, config);
+  const yBounds = getBallYBounds(ball, config);
+  const predictedX = reflectIntoRange(ball.position.x + ball.velocity.x * timeToPaddle, xBounds.min, xBounds.max);
+  const predictedY = reflectIntoRange(ball.position.y + ball.velocity.y * timeToPaddle, yBounds.min, yBounds.max);
+  const errorX = Math.sin(activeTimeSeconds * 2.1 + 0.4) * config.bot.trackingError;
+  const errorY = Math.cos(activeTimeSeconds * 1.7 + 0.8) * config.bot.trackingError;
+
+  return {
+    x: clamp(predictedX + errorX, area.minX, area.maxX),
+    y: clamp(predictedY + errorY, area.minY, area.maxY),
+  };
+}
+
 function movePaddle(
   paddle: PaddleState,
   requestedMovement: Vector2,
   deltaSeconds: number,
   config: GameConfig,
+  maxSpeed = config.paddle.maxSpeed,
 ): PaddleState {
-  const movement = limitVector(requestedMovement, config.paddle.maxSpeed * deltaSeconds);
+  const movement = limitVector(requestedMovement, maxSpeed * deltaSeconds);
   const nextPosition = {
     x: clamp(paddle.position.x + movement.x, paddle.movementArea.minX, paddle.movementArea.maxX),
     y: clamp(paddle.position.y + movement.y, paddle.movementArea.minY, paddle.movementArea.maxY),
@@ -533,8 +633,20 @@ function createPaddleHitbox(
     maxX: paddle.position.x + halfWidth,
     minY: paddle.position.y - halfHeight,
     maxY: paddle.position.y + halfHeight,
-    faceZ: paddle.position.z - (side === "player" ? halfDepth : -halfDepth),
+    faceZ: getPaddleFaceZ(side, paddle.position.z, halfDepth),
   };
+}
+
+function getPaddleContactCenterZ(side: Side, config: GameConfig): number {
+  const area = side === "player" ? config.paddle.playerArea : config.paddle.opponentArea;
+  const halfDepth = config.paddle.visibleSize.z / 2 + config.collision.forgivingHitbox.z;
+  const approachDirection = side === "player" ? 1 : -1;
+
+  return getPaddleFaceZ(side, area.z, halfDepth) - approachDirection * config.ball.radius;
+}
+
+function getPaddleFaceZ(side: Side, paddleZ: number, halfDepth: number): number {
+  return paddleZ - (side === "player" ? halfDepth : -halfDepth);
 }
 
 function createPaddleReturnVelocity(
@@ -579,28 +691,25 @@ function moveBall(
   const events: GameEvent[] = [];
   let position = add(ball.position, scale(ball.velocity, deltaSeconds));
   let velocity = ball.velocity;
+  const xBounds = getBallXBounds(ball, config);
+  const yBounds = getBallYBounds(ball, config);
 
-  const minX = -config.arena.width / 2 + ball.radius;
-  const maxX = config.arena.width / 2 - ball.radius;
-  const minY = ball.radius;
-  const maxY = config.arena.height - ball.radius;
-
-  if (position.x < minX) {
-    position = { ...position, x: reflectBelow(position.x, minX) };
+  if (position.x < xBounds.min) {
+    position = { ...position, x: reflectBelow(position.x, xBounds.min) };
     velocity = { ...velocity, x: Math.abs(velocity.x) };
     events.push({ type: "wall-bounce", axis: "x" });
-  } else if (position.x > maxX) {
-    position = { ...position, x: reflectAbove(position.x, maxX) };
+  } else if (position.x > xBounds.max) {
+    position = { ...position, x: reflectAbove(position.x, xBounds.max) };
     velocity = { ...velocity, x: -Math.abs(velocity.x) };
     events.push({ type: "wall-bounce", axis: "x" });
   }
 
-  if (position.y < minY) {
-    position = { ...position, y: reflectBelow(position.y, minY) };
+  if (position.y < yBounds.min) {
+    position = { ...position, y: reflectBelow(position.y, yBounds.min) };
     velocity = { ...velocity, y: Math.abs(velocity.y) };
     events.push({ type: "wall-bounce", axis: "y" });
-  } else if (position.y > maxY) {
-    position = { ...position, y: reflectAbove(position.y, maxY) };
+  } else if (position.y > yBounds.max) {
+    position = { ...position, y: reflectAbove(position.y, yBounds.max) };
     velocity = { ...velocity, y: -Math.abs(velocity.y) };
     events.push({ type: "wall-bounce", axis: "y" });
   }
@@ -612,6 +721,20 @@ function moveBall(
       velocity,
     },
     events,
+  };
+}
+
+function getBallXBounds(ball: BallState, config: GameConfig): Readonly<{ min: number; max: number }> {
+  return {
+    min: -config.arena.width / 2 + ball.radius,
+    max: config.arena.width / 2 - ball.radius,
+  };
+}
+
+function getBallYBounds(ball: BallState, config: GameConfig): Readonly<{ min: number; max: number }> {
+  return {
+    min: ball.radius,
+    max: config.arena.height - ball.radius,
   };
 }
 
@@ -678,6 +801,31 @@ function reflectBelow(value: number, minimum: number): number {
 
 function reflectAbove(value: number, maximum: number): number {
   return maximum - (value - maximum);
+}
+
+function reflectIntoRange(value: number, minimum: number, maximum: number): number {
+  const range = maximum - minimum;
+  const period = range * 2;
+
+  if (period === 0) {
+    return minimum;
+  }
+
+  const normalized = positiveModulo(value - minimum, period);
+
+  return normalized <= range ? minimum + normalized : maximum - (normalized - range);
+}
+
+function positiveModulo(value: number, modulus: number): number {
+  return ((value % modulus) + modulus) % modulus;
+}
+
+function paddleCenterX(area: MovementArea): number {
+  return (area.minX + area.maxX) / 2;
+}
+
+function paddleCenterY(area: MovementArea): number {
+  return (area.minY + area.maxY) / 2;
 }
 
 function lerp(start: number, end: number, amount: number): number {
