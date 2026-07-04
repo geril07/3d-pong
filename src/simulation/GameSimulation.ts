@@ -1,4 +1,8 @@
-export type GamePhase = "running" | "input-not-captured";
+export type Side = "player" | "opponent";
+
+export type GamePhase = "running" | "input-not-captured" | "serve-delay" | "match-over";
+
+export type ResumablePhase = "running" | "serve-delay";
 
 export type Vector2 = Readonly<{
   x: number;
@@ -15,6 +19,7 @@ export type ArenaConfig = Readonly<{
   width: number;
   height: number;
   depth: number;
+  scoringPlaneOffset: number;
 }>;
 
 export type MovementArea = Readonly<{
@@ -34,7 +39,18 @@ export type PaddleConfig = Readonly<{
 
 export type BallConfig = Readonly<{
   radius: number;
-  initialVelocity: Vector3;
+  serveSpeed: number;
+  serveX: number;
+  serveY: number;
+}>;
+
+export type ScoreConfig = Readonly<{
+  target: number;
+}>;
+
+export type ServeConfig = Readonly<{
+  delaySeconds: number;
+  firstServeToward: Side;
 }>;
 
 export type InputConfig = Readonly<{
@@ -46,6 +62,8 @@ export type GameConfig = Readonly<{
   ball: BallConfig;
   paddle: PaddleConfig;
   input: InputConfig;
+  score: ScoreConfig;
+  serve: ServeConfig;
 }>;
 
 export type BallState = Readonly<{
@@ -63,6 +81,13 @@ export type PaddleState = Readonly<{
 export type GameEvent = Readonly<{
   type: "wall-bounce";
   axis: "x" | "y";
+}> | Readonly<{
+  type: "score";
+  scoringSide: Side;
+  lostSide: Side;
+}> | Readonly<{
+  type: "serve";
+  toward: Side;
 }>;
 
 export type InputSnapshot = Readonly<{
@@ -71,7 +96,12 @@ export type InputSnapshot = Readonly<{
 
 export type GameState = Readonly<{
   phase: GamePhase;
+  phaseBeforePause: ResumablePhase;
   activeTimeSeconds: number;
+  serveTimerSeconds: number;
+  nextServeToward: Side;
+  score: Readonly<Record<Side, number>>;
+  winner: Side | null;
   ball: BallState;
   playerPaddle: PaddleState;
   opponentPaddle: PaddleState;
@@ -85,14 +115,13 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     width: 6,
     height: 3.2,
     depth: 8,
+    scoringPlaneOffset: 0.45,
   },
   ball: {
     radius: 0.13,
-    initialVelocity: {
-      x: 0.95,
-      y: 0.45,
-      z: -3.4,
-    },
+    serveSpeed: 3.7,
+    serveX: 0.75,
+    serveY: 0.45,
   },
   paddle: {
     visibleSize: {
@@ -119,6 +148,13 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   input: {
     mouseWorldUnitsPerPixel: 0.01,
   },
+  score: {
+    target: 5,
+  },
+  serve: {
+    delaySeconds: 0.9,
+    firstServeToward: "player",
+  },
 };
 
 export const EMPTY_INPUT: InputSnapshot = {
@@ -128,20 +164,22 @@ export const EMPTY_INPUT: InputSnapshot = {
   },
 };
 
+const SERVE_TIMER_EPSILON = 0.000001;
+
 export function createInitialGameState(config = DEFAULT_GAME_CONFIG): GameState {
   const playerPaddle = createPaddle(config.paddle.playerArea);
   const opponentPaddle = createPaddle(config.paddle.opponentArea);
 
   return {
     phase: "input-not-captured",
+    phaseBeforePause: "serve-delay",
     activeTimeSeconds: 0,
+    serveTimerSeconds: config.serve.delaySeconds,
+    nextServeToward: config.serve.firstServeToward,
+    score: { player: 0, opponent: 0 },
+    winner: null,
     ball: {
-      position: {
-        x: 0,
-        y: config.arena.height / 2,
-        z: 0,
-      },
-      velocity: config.ball.initialVelocity,
+      ...createResetBall(config),
       radius: config.ball.radius,
     },
     playerPaddle,
@@ -151,11 +189,31 @@ export function createInitialGameState(config = DEFAULT_GAME_CONFIG): GameState 
 }
 
 export function setInputCaptured(state: GameState, isCaptured: boolean): GameState {
+  if (state.phase === "match-over") {
+    return {
+      ...state,
+      events: [],
+    };
+  }
+
+  if (isCaptured) {
+    return {
+      ...state,
+      phase: state.phase === "input-not-captured" ? state.phaseBeforePause : state.phase,
+      events: [],
+    };
+  }
+
   return {
     ...state,
-    phase: isCaptured ? "running" : "input-not-captured",
+    phaseBeforePause: state.phase === "input-not-captured" ? state.phaseBeforePause : state.phase,
+    phase: "input-not-captured",
     events: [],
   };
+}
+
+export function restartGame(state: GameState, isInputCaptured: boolean, config = DEFAULT_GAME_CONFIG): GameState {
+  return setInputCaptured(createInitialGameState(config), isInputCaptured && state.phase !== "input-not-captured");
 }
 
 export function stepGame(
@@ -166,15 +224,29 @@ export function stepGame(
 ): GameState {
   const dt = clamp(deltaSeconds, 0, 0.1);
 
-  if (state.phase !== "running" || dt === 0) {
+  if (state.phase !== "running" && state.phase !== "serve-delay") {
     return {
       ...state,
       events: [],
     };
   }
 
+  if (dt === 0) {
+    return { ...state, events: [] };
+  }
+
   const playerPaddle = movePaddle(state.playerPaddle, input.playerMovement, dt, config);
+
+  if (state.phase === "serve-delay") {
+    return stepServeDelay(state, playerPaddle, dt, config);
+  }
+
   const ballStep = moveBall(state.ball, dt, config);
+  const scoreEvent = getScoreEvent(ballStep.ball, config);
+
+  if (scoreEvent) {
+    return applyScore(state, scoreEvent, dt, config);
+  }
 
   return {
     ...state,
@@ -187,6 +259,118 @@ export function stepGame(
     },
     events: ballStep.events,
   };
+}
+
+function stepServeDelay(
+  state: GameState,
+  playerPaddle: PaddleState,
+  deltaSeconds: number,
+  config: GameConfig,
+): GameState {
+  const serveTimerSeconds = Math.max(state.serveTimerSeconds - deltaSeconds, 0);
+
+  if (serveTimerSeconds > SERVE_TIMER_EPSILON) {
+    return {
+      ...state,
+      activeTimeSeconds: state.activeTimeSeconds + deltaSeconds,
+      serveTimerSeconds,
+      playerPaddle,
+      opponentPaddle: {
+        ...state.opponentPaddle,
+        velocity: { x: 0, y: 0, z: 0 },
+      },
+      events: [],
+    };
+  }
+
+  return {
+    ...state,
+    phase: "running",
+    phaseBeforePause: "running",
+    activeTimeSeconds: state.activeTimeSeconds + deltaSeconds,
+    serveTimerSeconds: 0,
+    ball: {
+      ...state.ball,
+      velocity: createServeVelocity(state.nextServeToward, config),
+    },
+    playerPaddle,
+    opponentPaddle: {
+      ...state.opponentPaddle,
+      velocity: { x: 0, y: 0, z: 0 },
+    },
+    events: [{ type: "serve", toward: state.nextServeToward }],
+  };
+}
+
+function applyScore(
+  state: GameState,
+  scoreEvent: Extract<GameEvent, { type: "score" }>,
+  deltaSeconds: number,
+  config: GameConfig,
+): GameState {
+  const score = {
+    ...state.score,
+    [scoreEvent.scoringSide]: state.score[scoreEvent.scoringSide] + 1,
+  };
+  const winner = score[scoreEvent.scoringSide] >= config.score.target ? scoreEvent.scoringSide : null;
+  const phase = winner ? "match-over" : "serve-delay";
+
+  return {
+    ...state,
+    phase,
+    phaseBeforePause: winner ? state.phaseBeforePause : "serve-delay",
+    activeTimeSeconds: state.activeTimeSeconds + deltaSeconds,
+    serveTimerSeconds: winner ? 0 : config.serve.delaySeconds,
+    nextServeToward: scoreEvent.lostSide,
+    score,
+    winner,
+    ball: {
+      ...createResetBall(config),
+      radius: state.ball.radius,
+    },
+    playerPaddle: createPaddle(config.paddle.playerArea),
+    opponentPaddle: createPaddle(config.paddle.opponentArea),
+    events: [scoreEvent],
+  };
+}
+
+function getScoreEvent(ball: BallState, config: GameConfig): Extract<GameEvent, { type: "score" }> | null {
+  const playerScoringPlane = config.arena.depth / 2 + config.arena.scoringPlaneOffset;
+  const opponentScoringPlane = -config.arena.depth / 2 - config.arena.scoringPlaneOffset;
+
+  if (ball.position.z > playerScoringPlane) {
+    return { type: "score", scoringSide: "opponent", lostSide: "player" };
+  }
+
+  if (ball.position.z < opponentScoringPlane) {
+    return { type: "score", scoringSide: "player", lostSide: "opponent" };
+  }
+
+  return null;
+}
+
+function createResetBall(config: GameConfig): Omit<BallState, "radius"> {
+  return {
+    position: {
+      x: 0,
+      y: config.arena.height / 2,
+      z: 0,
+    },
+    velocity: { x: 0, y: 0, z: 0 },
+  };
+}
+
+function createServeVelocity(toward: Side, config: GameConfig): Vector3 {
+  const zDirection = toward === "player" ? 1 : -1;
+
+  return normalizeToSpeed(
+    {
+      x: config.ball.serveX,
+      y: config.ball.serveY,
+      z: zDirection,
+    },
+    config.ball.serveSpeed,
+  );
 }
 
 function createPaddle(area: MovementArea): PaddleState {
@@ -283,6 +467,16 @@ function scale(vector: Vector3, amount: number): Vector3 {
     y: vector.y * amount,
     z: vector.z * amount,
   };
+}
+
+function normalizeToSpeed(vector: Vector3, speed: number): Vector3 {
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+
+  if (length === 0) {
+    return { x: 0, y: 0, z: speed };
+  }
+
+  return scale(vector, speed / length);
 }
 
 function limitVector(vector: Vector2, maxLength: number): Vector2 {

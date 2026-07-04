@@ -29,6 +29,45 @@ body {
   cursor: crosshair;
 }
 
+#score-panel {
+  position: absolute;
+  left: 50%;
+  top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: min(92vw, 360px);
+  justify-content: center;
+  padding: 10px 14px;
+  border: 1px solid rgba(122, 202, 255, 0.34);
+  border-radius: 999px;
+  background: rgba(5, 7, 17, 0.62);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.score-side {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.score-name,
+.score-divider {
+  color: #aabade;
+  font-size: 0.76rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.score-value {
+  min-width: 1.3ch;
+  color: #f5f7ff;
+  font-size: clamp(1.3rem, 3vw, 1.8rem);
+  font-weight: 760;
+  line-height: 1;
+}
+
 #status-panel {
   position: absolute;
   left: 50%;

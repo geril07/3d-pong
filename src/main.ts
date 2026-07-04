@@ -18,20 +18,47 @@ const canvas = requireElement<HTMLCanvasElement>("#game-canvas");
 const statusPanel = requireElement<HTMLDivElement>("#status-panel");
 const statusLabel = requireElement<HTMLDivElement>("#status-label");
 const statusHelp = requireElement<HTMLDivElement>("#status-help");
+const playerScore = requireElement<HTMLSpanElement>("#player-score");
+const opponentScore = requireElement<HTMLSpanElement>("#opponent-score");
 
 const runtime = new GameRuntime();
 const scene = new GameScene(canvas);
 
 function syncStatus(): void {
   const snapshot = runtime.getSnapshot();
+  const isInputMissing = snapshot.phase === "input-not-captured";
+  const isMatchOver = snapshot.phase === "match-over";
 
-  statusPanel.classList.toggle("is-paused", snapshot.phase === "input-not-captured");
-  statusPanel.classList.toggle("is-running", snapshot.phase === "running");
+  playerScore.textContent = String(snapshot.score.player);
+  opponentScore.textContent = String(snapshot.score.opponent);
+  statusPanel.classList.toggle("is-paused", isInputMissing || isMatchOver);
+  statusPanel.classList.toggle("is-running", snapshot.phase === "running" || snapshot.phase === "serve-delay");
+
+  if (snapshot.phase === "match-over") {
+    statusLabel.textContent = `${formatSide(snapshot.winner)} wins`;
+    statusHelp.textContent = "Press R to restart the match.";
+    return;
+  }
+
+  if (snapshot.phase === "serve-delay") {
+    statusLabel.textContent = "Serving";
+    statusHelp.textContent = `Next serve goes toward ${formatSide(snapshot.nextServeToward)}.`;
+    return;
+  }
+
   statusLabel.textContent = snapshot.phase === "running" ? "Input captured" : "Input not captured";
   statusHelp.textContent =
     snapshot.phase === "running"
       ? "Gameplay is active. Press Escape to pause/release input."
       : "Click the arena to capture mouse input. Simulation is paused.";
+}
+
+function formatSide(side: "player" | "opponent" | null): string {
+  if (side === "player") {
+    return "Player";
+  }
+
+  return "Bot";
 }
 
 const pointerLock = new PointerLockController(
@@ -53,6 +80,7 @@ function animate(frameTimeMs: number): void {
   lastFrameTimeMs = frameTimeMs;
 
   runtime.update(deltaSeconds, pointerLock.consumeInput());
+  syncStatus();
   scene.render(runtime.getSnapshot());
 
   requestAnimationFrame(animate);
@@ -62,4 +90,13 @@ requestAnimationFrame(animate);
 
 window.addEventListener("resize", () => {
   scene.resize();
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.key.toLowerCase() !== "r" || runtime.getSnapshot().phase !== "match-over") {
+    return;
+  }
+
+  runtime.restart();
+  syncStatus();
 });

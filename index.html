@@ -8,6 +8,17 @@
   <body>
     <div id="app">
       <canvas id="game-canvas" aria-label="3D Pong Arena gameplay canvas"></canvas>
+      <div id="score-panel" aria-label="Score">
+        <div class="score-side">
+          <span class="score-name">Player</span>
+          <span id="player-score" class="score-value">0</span>
+        </div>
+        <div class="score-divider">to 5</div>
+        <div class="score-side">
+          <span class="score-name">Bot</span>
+          <span id="opponent-score" class="score-value">0</span>
+        </div>
+      </div>
       <div id="status-panel" aria-live="polite">
         <div id="status-label">Input not captured</div>
         <div id="status-help">Click the arena to capture mouse input. Press Escape to release.</div>
