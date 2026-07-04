@@ -198,6 +198,90 @@ describe("stepGame", () => {
     expect(restarted.score).toEqual({ player: 0, opponent: 0 });
     expect(restarted.winner).toBeNull();
   });
+
+  it("bounces normally off the player paddle when paddle velocity is below the Drag-Hit threshold", () => {
+    const next = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: 0, y: 0 }), EMPTY_INPUT, 0.05);
+
+    expect(next.ball.velocity.z).toBeLessThan(0);
+    expect(next.ball.velocity.x).toBeCloseTo(0);
+    expect(next.ball.velocity.y).toBeCloseTo(0);
+    expect(next.events).toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
+  });
+
+  it("uses contact position to change the baseline return angle", () => {
+    const left = stepGame(createPlayerHitState({ x: -0.4, y: 0 }, { x: 0, y: 0 }), EMPTY_INPUT, 0.05);
+    const right = stepGame(createPlayerHitState({ x: 0.4, y: 0 }, { x: 0, y: 0 }), EMPTY_INPUT, 0.05);
+
+    expect(left.ball.velocity.x).toBeLessThan(0);
+    expect(right.ball.velocity.x).toBeGreaterThan(0);
+  });
+
+  it("uses Drag-Hit paddle velocity to influence outgoing direction and speed", () => {
+    const still = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: 0, y: 0 }), EMPTY_INPUT, 0.05);
+    const dragging = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: 5, y: 4 }), EMPTY_INPUT, 0.05);
+
+    expect(dragging.ball.velocity.x).toBeGreaterThan(still.ball.velocity.x);
+    expect(dragging.ball.velocity.y).toBeGreaterThan(still.ball.velocity.y);
+    expect(speedOf(dragging.ball.velocity)).toBeGreaterThan(speedOf(still.ball.velocity));
+  });
+
+  it("ignores paddle jitter below the Drag-Hit threshold", () => {
+    const jitter = DEFAULT_GAME_CONFIG.collision.dragSpeedThreshold * 0.5;
+    const next = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: jitter, y: 0 }), EMPTY_INPUT, 0.05);
+
+    expect(next.ball.velocity.x).toBeCloseTo(0);
+    expect(speedOf(next.ball.velocity)).toBeCloseTo(3);
+  });
+
+  it("clamps ball speed after paddle collision", () => {
+    const slow = stepGame(
+      createPlayerHitState({ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0, z: 1 }),
+      EMPTY_INPUT,
+      0.05,
+    );
+    const fast = stepGame(
+      createPlayerHitState({ x: 0, y: 0 }, { x: 99, y: 99 }, { x: 0, y: 0, z: 40 }),
+      EMPTY_INPUT,
+      0.05,
+    );
+
+    expect(speedOf(slow.ball.velocity)).toBeCloseTo(DEFAULT_GAME_CONFIG.ball.minSpeed);
+    expect(speedOf(fast.ball.velocity)).toBeCloseTo(DEFAULT_GAME_CONFIG.ball.maxSpeed);
+  });
+
+  it("uses the configurable Forgiving Hitbox beyond the visible paddle", () => {
+    const visibleHalfWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2;
+    const forgivingOffset = DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x * 0.5;
+    const next = stepGame(
+      createPlayerHitState({ x: visibleHalfWidth + forgivingOffset, y: 0 }, { x: 0, y: 0 }),
+      EMPTY_INPUT,
+      0.05,
+    );
+
+    expect(next.ball.velocity.z).toBeLessThan(0);
+    expect(next.events).toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
+  });
+
+  it("does not treat the Buffer Zone as a collider", () => {
+    const visibleHalfWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2;
+    const forgivingWidth = DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x;
+    const bufferOffset = DEFAULT_GAME_CONFIG.collision.bufferZone.x * 0.5;
+    const next = stepGame(
+      createPlayerHitState({ x: visibleHalfWidth + forgivingWidth + bufferOffset, y: 0 }, { x: 0, y: 0 }),
+      EMPTY_INPUT,
+      0.05,
+    );
+
+    expect(next.ball.velocity.z).toBeGreaterThan(0);
+    expect(next.events).not.toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
+  });
+
+  it("bases Drag-Hit on actual clamped paddle velocity, not raw input spikes", () => {
+    const next = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: 0, y: 0 }), { playerMovement: { x: 100, y: 0 } }, 0.05);
+
+    expect(Math.abs(next.playerPaddle.velocity.x)).toBeLessThanOrEqual(DEFAULT_GAME_CONFIG.paddle.maxSpeed);
+    expect(speedOf(next.ball.velocity)).toBeLessThanOrEqual(DEFAULT_GAME_CONFIG.ball.maxSpeed);
+  });
 });
 
 function createRunningState(): GameState {
@@ -226,6 +310,45 @@ function advanceGame(state: GameState, seconds: number): GameState {
   }
 
   return next;
+}
+
+function createPlayerHitState(
+  contactOffset: { x: number; y: number },
+  paddleVelocity: { x: number; y: number },
+  ballVelocity = { x: 0, y: 0, z: 3 },
+): GameState {
+  const state = createRunningState();
+  const contactZ = playerContactCenterZ();
+  const paddle = {
+    ...state.playerPaddle,
+    velocity: { x: paddleVelocity.x, y: paddleVelocity.y, z: 0 },
+  };
+
+  return {
+    ...state,
+    playerPaddle: paddle,
+    ball: {
+      ...state.ball,
+      position: {
+        x: paddle.position.x + contactOffset.x,
+        y: paddle.position.y + contactOffset.y,
+        z: contactZ - 0.03,
+      },
+      velocity: ballVelocity,
+    },
+  };
+}
+
+function playerContactCenterZ(): number {
+  const paddleFaceZ =
+    DEFAULT_GAME_CONFIG.paddle.playerArea.z -
+    (DEFAULT_GAME_CONFIG.paddle.visibleSize.z / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.z);
+
+  return paddleFaceZ - DEFAULT_GAME_CONFIG.ball.radius;
+}
+
+function speedOf(vector: { x: number; y: number; z: number }): number {
+  return Math.hypot(vector.x, vector.y, vector.z);
 }
 
 function withBall(

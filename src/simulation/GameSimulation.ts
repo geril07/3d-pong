@@ -33,6 +33,7 @@ export type MovementArea = Readonly<{
 export type PaddleConfig = Readonly<{
   visibleSize: Vector3;
   maxSpeed: number;
+  velocitySmoothing: number;
   playerArea: MovementArea;
   opponentArea: MovementArea;
 }>;
@@ -40,8 +41,21 @@ export type PaddleConfig = Readonly<{
 export type BallConfig = Readonly<{
   radius: number;
   serveSpeed: number;
+  minSpeed: number;
+  maxSpeed: number;
   serveX: number;
   serveY: number;
+}>;
+
+export type CollisionConfig = Readonly<{
+  forgivingHitbox: Vector3;
+  bufferZone: Vector3;
+  contactInfluenceX: number;
+  contactInfluenceY: number;
+  dragDirectionInfluence: number;
+  dragSpeedThreshold: number;
+  dragSpeedBonusPerVelocity: number;
+  maxDragSpeedBonus: number;
 }>;
 
 export type ScoreConfig = Readonly<{
@@ -61,6 +75,7 @@ export type GameConfig = Readonly<{
   arena: ArenaConfig;
   ball: BallConfig;
   paddle: PaddleConfig;
+  collision: CollisionConfig;
   input: InputConfig;
   score: ScoreConfig;
   serve: ServeConfig;
@@ -88,6 +103,10 @@ export type GameEvent = Readonly<{
 }> | Readonly<{
   type: "serve";
   toward: Side;
+}> | Readonly<{
+  type: "paddle-hit";
+  side: Side;
+  speed: number;
 }>;
 
 export type InputSnapshot = Readonly<{
@@ -120,6 +139,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   ball: {
     radius: 0.13,
     serveSpeed: 3.7,
+    minSpeed: 2.6,
+    maxSpeed: 7.2,
     serveX: 0.75,
     serveY: 0.45,
   },
@@ -130,6 +151,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       z: 0.12,
     },
     maxSpeed: 8,
+    velocitySmoothing: 0.7,
     playerArea: {
       minX: -2.2,
       maxX: 2.2,
@@ -144,6 +166,24 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       maxY: 2.55,
       z: -3.75,
     },
+  },
+  collision: {
+    forgivingHitbox: {
+      x: 0.12,
+      y: 0.1,
+      z: 0.05,
+    },
+    bufferZone: {
+      x: 0.45,
+      y: 0.3,
+      z: 0.25,
+    },
+    contactInfluenceX: 0.85,
+    contactInfluenceY: 0.65,
+    dragDirectionInfluence: 0.055,
+    dragSpeedThreshold: 1.1,
+    dragSpeedBonusPerVelocity: 0.18,
+    maxDragSpeedBonus: 1.25,
   },
   input: {
     mouseWorldUnitsPerPixel: 0.01,
@@ -242,7 +282,10 @@ export function stepGame(
   }
 
   const ballStep = moveBall(state.ball, dt, config);
-  const scoreEvent = getScoreEvent(ballStep.ball, config);
+  const hitResult = resolvePaddleCollision(state.ball, ballStep.ball, playerPaddle, "player", config);
+  const ball = hitResult?.ball ?? ballStep.ball;
+  const events = hitResult ? [...ballStep.events, hitResult.event] : ballStep.events;
+  const scoreEvent = getScoreEvent(ball, config);
 
   if (scoreEvent) {
     return applyScore(state, scoreEvent, dt, config);
@@ -251,13 +294,13 @@ export function stepGame(
   return {
     ...state,
     activeTimeSeconds: state.activeTimeSeconds + dt,
-    ball: ballStep.ball,
+    ball,
     playerPaddle,
     opponentPaddle: {
       ...state.opponentPaddle,
       velocity: { x: 0, y: 0, z: 0 },
     },
-    events: ballStep.events,
+    events,
   };
 }
 
@@ -397,16 +440,135 @@ function movePaddle(
     y: clamp(paddle.position.y + movement.y, paddle.movementArea.minY, paddle.movementArea.maxY),
     z: paddle.movementArea.z,
   };
+  const rawVelocity = {
+    x: (nextPosition.x - paddle.position.x) / deltaSeconds,
+    y: (nextPosition.y - paddle.position.y) / deltaSeconds,
+    z: 0,
+  };
+  const smoothing = clamp(config.paddle.velocitySmoothing, 0, 1);
 
   return {
     ...paddle,
     position: nextPosition,
     velocity: {
-      x: (nextPosition.x - paddle.position.x) / deltaSeconds,
-      y: (nextPosition.y - paddle.position.y) / deltaSeconds,
+      x: lerp(paddle.velocity.x, rawVelocity.x, smoothing),
+      y: lerp(paddle.velocity.y, rawVelocity.y, smoothing),
       z: 0,
     },
   };
+}
+
+function resolvePaddleCollision(
+  previousBall: BallState,
+  candidateBall: BallState,
+  paddle: PaddleState,
+  side: Side,
+  config: GameConfig,
+): Readonly<{ ball: BallState; event: Extract<GameEvent, { type: "paddle-hit" }> }> | null {
+  const approachDirection = side === "player" ? 1 : -1;
+
+  if (previousBall.velocity.z * approachDirection <= 0) {
+    return null;
+  }
+
+  const hitbox = createPaddleHitbox(paddle, side, config);
+  const contactCenterZ = hitbox.faceZ - approachDirection * previousBall.radius;
+  const previousDistance = (previousBall.position.z - contactCenterZ) * approachDirection;
+  const nextDistance = (candidateBall.position.z - contactCenterZ) * approachDirection;
+
+  if (previousDistance > 0 || nextDistance < 0) {
+    return null;
+  }
+
+  const zDelta = candidateBall.position.z - previousBall.position.z;
+
+  if (zDelta === 0) {
+    return null;
+  }
+
+  const contactTime = clamp((contactCenterZ - previousBall.position.z) / zDelta, 0, 1);
+  const contactPoint = interpolate(previousBall.position, candidateBall.position, contactTime);
+
+  if (
+    contactPoint.x < hitbox.minX ||
+    contactPoint.x > hitbox.maxX ||
+    contactPoint.y < hitbox.minY ||
+    contactPoint.y > hitbox.maxY
+  ) {
+    return null;
+  }
+
+  const outgoingVelocity = createPaddleReturnVelocity(candidateBall.velocity, paddle, contactPoint, side, config);
+  const speed = vectorLength(outgoingVelocity);
+
+  return {
+    ball: {
+      ...candidateBall,
+      position: {
+        x: contactPoint.x,
+        y: contactPoint.y,
+        z: contactCenterZ - approachDirection * 0.001,
+      },
+      velocity: outgoingVelocity,
+    },
+    event: {
+      type: "paddle-hit",
+      side,
+      speed,
+    },
+  };
+}
+
+function createPaddleHitbox(
+  paddle: PaddleState,
+  side: Side,
+  config: GameConfig,
+): Readonly<{ minX: number; maxX: number; minY: number; maxY: number; faceZ: number }> {
+  const halfWidth = config.paddle.visibleSize.x / 2 + config.collision.forgivingHitbox.x;
+  const halfHeight = config.paddle.visibleSize.y / 2 + config.collision.forgivingHitbox.y;
+  const halfDepth = config.paddle.visibleSize.z / 2 + config.collision.forgivingHitbox.z;
+
+  return {
+    minX: paddle.position.x - halfWidth,
+    maxX: paddle.position.x + halfWidth,
+    minY: paddle.position.y - halfHeight,
+    maxY: paddle.position.y + halfHeight,
+    faceZ: paddle.position.z - (side === "player" ? halfDepth : -halfDepth),
+  };
+}
+
+function createPaddleReturnVelocity(
+  incomingVelocity: Vector3,
+  paddle: PaddleState,
+  contactPoint: Vector3,
+  side: Side,
+  config: GameConfig,
+): Vector3 {
+  const halfWidth = config.paddle.visibleSize.x / 2 + config.collision.forgivingHitbox.x;
+  const halfHeight = config.paddle.visibleSize.y / 2 + config.collision.forgivingHitbox.y;
+  const contactX = clamp((contactPoint.x - paddle.position.x) / halfWidth, -1, 1);
+  const contactY = clamp((contactPoint.y - paddle.position.y) / halfHeight, -1, 1);
+  const paddleSpeed = Math.hypot(paddle.velocity.x, paddle.velocity.y);
+  const dragAmount = Math.max(0, paddleSpeed - config.collision.dragSpeedThreshold);
+  const hasDragHit = dragAmount > 0;
+  const outgoingZ = side === "player" ? -1 : 1;
+  const direction = normalize({
+    x:
+      contactX * config.collision.contactInfluenceX +
+      (hasDragHit ? paddle.velocity.x * config.collision.dragDirectionInfluence : 0),
+    y:
+      contactY * config.collision.contactInfluenceY +
+      (hasDragHit ? paddle.velocity.y * config.collision.dragDirectionInfluence : 0),
+    z: outgoingZ,
+  });
+  const speedBonus = clamp(
+    dragAmount * config.collision.dragSpeedBonusPerVelocity,
+    0,
+    config.collision.maxDragSpeedBonus,
+  );
+  const speed = clamp(vectorLength(incomingVelocity) + speedBonus, config.ball.minSpeed, config.ball.maxSpeed);
+
+  return scale(direction, speed);
 }
 
 function moveBall(
@@ -461,6 +623,14 @@ function add(a: Vector3, b: Vector3): Vector3 {
   };
 }
 
+function interpolate(a: Vector3, b: Vector3, amount: number): Vector3 {
+  return {
+    x: lerp(a.x, b.x, amount),
+    y: lerp(a.y, b.y, amount),
+    z: lerp(a.z, b.z, amount),
+  };
+}
+
 function scale(vector: Vector3, amount: number): Vector3 {
   return {
     x: vector.x * amount,
@@ -470,13 +640,21 @@ function scale(vector: Vector3, amount: number): Vector3 {
 }
 
 function normalizeToSpeed(vector: Vector3, speed: number): Vector3 {
+  return scale(normalize(vector), speed);
+}
+
+function normalize(vector: Vector3): Vector3 {
   const length = Math.hypot(vector.x, vector.y, vector.z);
 
   if (length === 0) {
-    return { x: 0, y: 0, z: speed };
+    return { x: 0, y: 0, z: 1 };
   }
 
-  return scale(vector, speed / length);
+  return scale(vector, 1 / length);
+}
+
+function vectorLength(vector: Vector3): number {
+  return Math.hypot(vector.x, vector.y, vector.z);
 }
 
 function limitVector(vector: Vector2, maxLength: number): Vector2 {
@@ -500,6 +678,10 @@ function reflectBelow(value: number, minimum: number): number {
 
 function reflectAbove(value: number, maximum: number): number {
   return maximum - (value - maximum);
+}
+
+function lerp(start: number, end: number, amount: number): number {
+  return start + (end - start) * amount;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
