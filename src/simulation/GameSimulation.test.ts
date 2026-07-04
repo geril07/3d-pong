@@ -542,7 +542,7 @@ describe("stepGame", () => {
 
   it("uses the configurable Forgiving Hitbox beyond the visible paddle", () => {
     const visibleHalfWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2;
-    const forgivingOffset = DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x * 0.5;
+    const forgivingOffset = DEFAULT_GAME_CONFIG.ball.radius + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x * 0.5;
     const next = stepGame(
       createPlayerHitState({ x: visibleHalfWidth + forgivingOffset, y: 0 }, { x: 0, y: 0 }),
       EMPTY_INPUT,
@@ -555,7 +555,7 @@ describe("stepGame", () => {
 
   it("misses the visible paddle when Forgiving Hitbox tuning is removed", () => {
     const visibleHalfWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2;
-    const forgivingOffset = DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x * 0.5;
+    const forgivingOffset = DEFAULT_GAME_CONFIG.ball.radius + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x * 0.5;
     const config = collisionConfig({
       forgivingHitbox: { x: 0, y: 0, z: 0 },
     });
@@ -571,7 +571,7 @@ describe("stepGame", () => {
     expect(next.events).not.toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
   });
 
-  it("misses when the ball center is outside the Forgiving Hitbox edge", () => {
+  it("hits when the ball sphere overlaps the top edge of the Forgiving Hitbox", () => {
     const halfHitboxHeight = DEFAULT_GAME_CONFIG.paddle.visibleSize.y / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.y;
     const next = stepGame(
       createPlayerHitState({ x: 0, y: halfHitboxHeight + DEFAULT_GAME_CONFIG.ball.radius * 0.5 }, { x: 0, y: 0 }),
@@ -579,14 +579,31 @@ describe("stepGame", () => {
       0.05,
     );
 
-    expect(next.ball.velocity.z).toBeGreaterThan(0);
-    expect(next.events).not.toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
+    expect(next.ball.velocity.z).toBeLessThan(0);
+    expect(next.events).toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
   });
 
-  it("misses just outside the Forgiving Hitbox", () => {
+  it("hits when the ball sphere overlaps the visible paddle edge without extra forgiveness", () => {
+    const visibleHalfWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2;
+    const config = collisionConfig({
+      forgivingHitbox: { x: 0, y: 0, z: 0 },
+    });
+
+    const next = stepGame(
+      createPlayerHitState({ x: visibleHalfWidth + DEFAULT_GAME_CONFIG.ball.radius * 0.5, y: 0 }, { x: 0, y: 0 }),
+      EMPTY_INPUT,
+      0.05,
+      config,
+    );
+
+    expect(next.ball.velocity.z).toBeLessThan(0);
+    expect(next.events).toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
+  });
+
+  it("misses just outside the Forgiving Hitbox plus ball radius", () => {
     const halfHitboxWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x;
     const next = stepGame(
-      createPlayerHitState({ x: halfHitboxWidth + 0.01, y: 0 }, { x: 0, y: 0 }),
+      createPlayerHitState({ x: halfHitboxWidth + DEFAULT_GAME_CONFIG.ball.radius + 0.01, y: 0 }, { x: 0, y: 0 }),
       EMPTY_INPUT,
       0.05,
     );
@@ -595,10 +612,10 @@ describe("stepGame", () => {
     expect(next.events).not.toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
   });
 
-  it("misses diagonally outside the Forgiving Hitbox corner", () => {
+  it("misses diagonally outside the rounded Forgiving Hitbox corner", () => {
     const halfHitboxWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x;
     const halfHitboxHeight = DEFAULT_GAME_CONFIG.paddle.visibleSize.y / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.y;
-    const diagonalOffset = 0.01;
+    const diagonalOffset = DEFAULT_GAME_CONFIG.ball.radius * 0.8;
     const next = stepGame(
       createPlayerHitState(
         { x: halfHitboxWidth + diagonalOffset, y: halfHitboxHeight + diagonalOffset },
@@ -608,6 +625,7 @@ describe("stepGame", () => {
       0.05,
     );
 
+    expect(Math.hypot(diagonalOffset, diagonalOffset)).toBeGreaterThan(DEFAULT_GAME_CONFIG.ball.radius);
     expect(next.ball.velocity.z).toBeGreaterThan(0);
     expect(next.events).not.toContainEqual({ type: "paddle-hit", side: "player", speed: expect.any(Number) });
   });
