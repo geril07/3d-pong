@@ -25,5 +25,5 @@ The invisible back boundary behind a player's side. A point is scored only when 
 _Avoid_: Paddle line, buffer boundary, miss line
 
 **Forgiving Hitbox**:
-A configurable paddle collision volume that is slightly larger than the visible paddle mesh. It exists to make fast 3D play readable and fair, not to create an invisible auto-defense area.
+A configurable paddle collision volume that can be larger than the visible paddle mesh. The current default is disabled so paddle hits use the visible paddle rectangle plus the ball radius only.
 _Avoid_: Invisible wall, auto-save zone
