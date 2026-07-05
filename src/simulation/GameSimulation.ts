@@ -71,6 +71,7 @@ export type ScoreConfig = Readonly<{
 export type ServeConfig = Readonly<{
   delaySeconds: number;
   firstServeToward: Side;
+  chooseServeAim: () => Vector2;
 }>;
 
 export type InputConfig = Readonly<{
@@ -211,6 +212,10 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   serve: {
     delaySeconds: 0.9,
     firstServeToward: "player",
+    chooseServeAim: () => ({
+      x: randomSignedServeOffsetFactor(),
+      y: randomSignedServeOffsetFactor(),
+    }),
   },
 };
 
@@ -222,6 +227,13 @@ export const EMPTY_INPUT: InputSnapshot = {
 };
 
 const SERVE_TIMER_EPSILON = 0.000001;
+const MIN_SERVE_AIM_OFFSET_FACTOR = 0.35;
+
+function randomSignedServeOffsetFactor(): number {
+  const magnitude = lerp(MIN_SERVE_AIM_OFFSET_FACTOR, 1, Math.random());
+
+  return Math.random() < 0.5 ? -magnitude : magnitude;
+}
 
 export function createInitialGameState(config = DEFAULT_GAME_CONFIG): GameState {
   const playerPaddle = createPaddle(config.paddle.playerArea);
@@ -430,11 +442,12 @@ function createResetBall(config: GameConfig): Omit<BallState, "radius"> {
 
 function createServeVelocity(toward: Side, config: GameConfig): Vector3 {
   const zDirection = toward === "player" ? 1 : -1;
+  const aim = config.serve.chooseServeAim();
 
   return normalizeToSpeed(
     {
-      x: config.ball.serveX,
-      y: config.ball.serveY,
+      x: config.ball.serveX * aim.x,
+      y: config.ball.serveY * aim.y,
       z: zDirection,
     },
     config.ball.serveSpeed,

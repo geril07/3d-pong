@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createInitialGameState,
   DEFAULT_GAME_CONFIG,
@@ -373,6 +373,55 @@ describe("stepGame", () => {
     expect(served.events).toEqual([{ type: "serve", toward: "opponent" }]);
   });
 
+  it("uses randomized serve aim to change ball direction for the same pending target side", () => {
+    const upRightConfig = serveAimConfig({ x: 1, y: 1 });
+    const downLeftConfig = serveAimConfig({ x: -1, y: -1 });
+    const pendingServe = {
+      ...createInitialGameState(upRightConfig),
+      phase: "serve-delay" as const,
+      phaseBeforePause: "serve-delay" as const,
+      nextServeToward: "player" as const,
+      serveTimerSeconds: 0.05,
+    };
+    const upRightServe = stepGame(pendingServe, EMPTY_INPUT, 0.05, upRightConfig);
+    const downLeftServe = stepGame(pendingServe, EMPTY_INPUT, 0.05, downLeftConfig);
+
+    expect(upRightServe.events).toContainEqual({ type: "serve", toward: "player" });
+    expect(downLeftServe.events).toContainEqual({ type: "serve", toward: "player" });
+    expect(upRightServe.ball.velocity.z).toBeGreaterThan(0);
+    expect(downLeftServe.ball.velocity.z).toBeGreaterThan(0);
+    expect(upRightServe.ball.velocity.x).toBeGreaterThan(0);
+    expect(upRightServe.ball.velocity.y).toBeGreaterThan(0);
+    expect(downLeftServe.ball.velocity.x).toBeLessThan(0);
+    expect(downLeftServe.ball.velocity.y).toBeLessThan(0);
+  });
+
+  it("uses default serve aim offsets between center and corner instead of only corner signs", () => {
+    const random = vi.spyOn(Math, "random");
+    random
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0.75)
+      .mockReturnValueOnce(0.5)
+      .mockReturnValueOnce(0.25);
+
+    try {
+      const pendingServe = {
+        ...createInitialGameState(),
+        phase: "serve-delay" as const,
+        phaseBeforePause: "serve-delay" as const,
+        nextServeToward: "player" as const,
+        serveTimerSeconds: 0.05,
+      };
+      const served = stepGame(pendingServe, EMPTY_INPUT, 0.05);
+
+      expect(served.events).toContainEqual({ type: "serve", toward: "player" });
+      expect(served.ball.velocity.x / served.ball.velocity.z).toBeCloseTo(DEFAULT_GAME_CONFIG.ball.serveX * 0.35);
+      expect(served.ball.velocity.y / served.ball.velocity.z).toBeCloseTo(-DEFAULT_GAME_CONFIG.ball.serveY * 0.675);
+    } finally {
+      random.mockRestore();
+    }
+  });
+
   it("clears transient serve events on the next simulation step", () => {
     const scored = {
       ...createInitialGameState(),
@@ -390,12 +439,13 @@ describe("stepGame", () => {
   });
 
   it("serves toward a reachable point on the player side", () => {
-    let state = setInputCaptured(createInitialGameState(), true);
+    const config = serveAimConfig({ x: 1, y: 1 });
+    let state = setInputCaptured(createInitialGameState(config), true);
 
-    state = advanceGame(state, DEFAULT_GAME_CONFIG.serve.delaySeconds);
+    state = advanceGame(state, DEFAULT_GAME_CONFIG.serve.delaySeconds, config);
 
     while (state.phase === "running" && state.ball.position.z < playerContactCenterZ()) {
-      state = stepGame(state, EMPTY_INPUT, 1 / 60);
+      state = stepGame(state, EMPTY_INPUT, 1 / 60, config);
     }
 
     const halfHitboxWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x;
@@ -759,17 +809,27 @@ function createRunningState(): GameState {
   };
 }
 
-function advanceGame(state: GameState, seconds: number): GameState {
+function advanceGame(state: GameState, seconds: number, config = DEFAULT_GAME_CONFIG): GameState {
   let next = state;
   let remaining = seconds;
 
   while (remaining > 0) {
     const frameSeconds = Math.min(remaining, 0.1);
-    next = stepGame(next, EMPTY_INPUT, frameSeconds);
+    next = stepGame(next, EMPTY_INPUT, frameSeconds, config);
     remaining -= frameSeconds;
   }
 
   return next;
+}
+
+function serveAimConfig(aim: { x: number; y: number }): GameConfig {
+  return {
+    ...DEFAULT_GAME_CONFIG,
+    serve: {
+      ...DEFAULT_GAME_CONFIG.serve,
+      chooseServeAim: () => aim,
+    },
+  };
 }
 
 function createPlayerHitState(
