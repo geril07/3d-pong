@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { Reflector } from "three/examples/jsm/objects/Reflector.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { GameSnapshot } from "../simulation/GameRuntime";
 import { DEFAULT_GAME_CONFIG } from "../simulation/GameSimulation";
 
@@ -19,8 +19,6 @@ const PADDLE_HIT_EMISSIVE_INTENSITY = 0.82;
 const FLOOR_COLOR = 0x0a0f1c;
 const FLOOR_ROUGHNESS = 0.35;
 const FLOOR_METALNESS = 1;
-const FLOOR_REFLECTOR_OPACITY = 0.42;
-const FLOOR_REFLECTOR_TEXTURE_SIZE = 256;
 
 const FLOOR_TRIM_COLOR = 0x2f90ff;
 const FLOOR_TRIM_OPACITY = 0.8;
@@ -36,6 +34,7 @@ const WALL_EMISSIVE_INTENSITY = 0.08;
 const PLAYER_WALL_TINT = 0x45d7ff;
 const OPPONENT_WALL_TINT = 0xff9d38;
 const SIDE_WALL_TINT = 0x6f8fd6;
+const ENVIRONMENT_EXPOSURE = 0.55;
 
 export class GameScene {
   readonly #renderer: THREE.WebGLRenderer;
@@ -58,9 +57,17 @@ export class GameScene {
     this.#renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.#renderer.setClearColor(SCENE_BACKGROUND_COLOR, 1);
     this.#renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.#renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
     this.#scene = new THREE.Scene();
     this.#scene.fog = new THREE.Fog(SCENE_BACKGROUND_COLOR, FOG_NEAR, FOG_FAR);
+
+    const pmremGenerator = new THREE.PMREMGenerator(this.#renderer);
+    const envScene = new RoomEnvironment();
+    const envMap = pmremGenerator.fromScene(envScene, ENVIRONMENT_EXPOSURE).texture;
+    this.#scene.environment = envMap;
+    pmremGenerator.dispose();
+    envScene.dispose?.();
 
     this.#camera = new THREE.PerspectiveCamera(56, 1, 0.1, 50);
     this.#camera.position.set(0, 2.7, 8.6);
@@ -72,7 +79,7 @@ export class GameScene {
     keyLight.position.set(2.5, 5, 4);
     this.#scene.add(keyLight);
 
-    this.#scene.add(createReflectiveFloor());
+    this.#scene.add(createFloor());
     this.#scene.add(createFloorTrim());
     this.#scene.add(createWallPanels());
 
@@ -171,32 +178,17 @@ export class GameScene {
   }
 }
 
-function createReflectiveFloor(): THREE.Object3D {
+function createFloor(): THREE.Object3D {
   const geometry = new THREE.PlaneGeometry(arena.width, arena.depth);
-  const reflector = new Reflector(geometry, {
-    textureWidth: FLOOR_REFLECTOR_TEXTURE_SIZE,
-    textureHeight: FLOOR_REFLECTOR_TEXTURE_SIZE,
-    color: FLOOR_COLOR,
-  });
-  reflector.rotateX(-Math.PI / 2);
-  reflector.position.y = 0;
-
-  const surfaceMaterial = new THREE.MeshStandardMaterial({
+  const material = new THREE.MeshStandardMaterial({
     color: FLOOR_COLOR,
     metalness: FLOOR_METALNESS,
     roughness: FLOOR_ROUGHNESS,
-    transparent: true,
-    opacity: FLOOR_REFLECTOR_OPACITY,
-    depthWrite: false,
   });
-  const surface = new THREE.Mesh(geometry, surfaceMaterial);
-  surface.rotateX(-Math.PI / 2);
-  surface.position.y = 0.001;
-
-  const group = new THREE.Group();
-  group.add(reflector);
-  group.add(surface);
-  return group;
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotateX(-Math.PI / 2);
+  mesh.position.y = 0;
+  return mesh;
 }
 
 function createFloorTrim(): THREE.LineLoop {
