@@ -5,11 +5,11 @@ Language for the 3D Pong Arena game design. These terms define the gameplay conc
 ## Language
 
 **Drag-Hit**:
-A powered return caused by paddle movement at the moment of ball contact. Hit strength comes from current or recent paddle velocity, not from stored charge.
+A powered return caused by paddle movement at the moment of ball contact. Hit strength comes from current paddle velocity on the player's movement plane, not from stored charge.
 _Avoid_: Charge hit, charge meter, hold to power up
 
 **Buffer Zone**:
-A forgiving interaction area around the paddle where the player can manage position before contact. The buffer zone gives room to perform Drag-Hits, but it does not hit the ball by itself.
+A historical readability term for extra space around the paddle before contact. In the current playable version it is not an active runtime mechanic or collider.
 _Avoid_: Charge zone, auto-hit zone
 
 **Paddle Movement Area**:
@@ -25,5 +25,9 @@ The invisible back boundary behind a player's side. A point is scored only when 
 _Avoid_: Paddle line, buffer boundary, miss line
 
 **Forgiving Hitbox**:
-A configurable paddle collision volume that can be larger than the visible paddle mesh. The current default is disabled so paddle hits use the visible paddle rectangle plus the ball radius only.
+A configurable paddle collision volume that can be larger than the visible paddle mesh. The current default is enabled with a small assist in width, height, and depth to make contacts feel more reliable without turning the paddle into a wall.
 _Avoid_: Invisible wall, auto-save zone
+
+**Rally Tempo Ramp**:
+A configurable speed increase applied after each paddle hit within a rally. It raises pressure over longer exchanges, resets after a point, and stays bounded by the ball speed limits.
+_Avoid_: Hidden timer, sudden difficulty spike
