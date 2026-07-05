@@ -183,9 +183,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   },
   collision: {
     forgivingHitbox: {
-      x: 0,
-      y: 0,
-      z: 0,
+      x: 0.08,
+      y: 0.05,
+      z: 0.03,
     },
     bufferZone: {
       x: 0.45,

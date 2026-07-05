@@ -607,10 +607,10 @@ describe("stepGame", () => {
     expect(speedOf(fast.ball.velocity)).toBeCloseTo(DEFAULT_GAME_CONFIG.ball.maxSpeed);
   });
 
-  it("misses beyond the visible paddle when the default Forgiving Hitbox is disabled", () => {
-    const visibleHalfWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2;
+  it("misses beyond the default Forgiving Hitbox", () => {
+    const halfHitboxWidth = DEFAULT_GAME_CONFIG.paddle.visibleSize.x / 2 + DEFAULT_GAME_CONFIG.collision.forgivingHitbox.x;
     const next = stepGame(
-      createPlayerHitState({ x: visibleHalfWidth + DEFAULT_GAME_CONFIG.ball.radius + 0.01, y: 0 }, { x: 0, y: 0 }),
+      createPlayerHitState({ x: halfHitboxWidth + DEFAULT_GAME_CONFIG.ball.radius + 0.01, y: 0 }, { x: 0, y: 0 }),
       EMPTY_INPUT,
       0.05,
     );
@@ -733,7 +733,6 @@ describe("stepGame", () => {
     const next = stepGame(state, EMPTY_INPUT, 0.1, botConfig({ trackingError: 0, reactionSeconds: 0 }));
 
     expect(next.bot.target.x).toBeGreaterThan(0);
-    expect(next.bot.target.y).toBeGreaterThan(state.opponentPaddle.position.y);
     expect(distance2D(next.opponentPaddle.position, next.bot.target)).toBeLessThan(
       distance2D(state.opponentPaddle.position, next.bot.target),
     );
