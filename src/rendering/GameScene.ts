@@ -1,9 +1,41 @@
 import * as THREE from "three";
+import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import type { GameSnapshot } from "../simulation/GameRuntime";
-import { DEFAULT_GAME_CONFIG, type MovementArea } from "../simulation/GameSimulation";
+import { DEFAULT_GAME_CONFIG } from "../simulation/GameSimulation";
 
 const { arena, ball, paddle } = DEFAULT_GAME_CONFIG;
+const SCENE_BACKGROUND_COLOR = 0x050711;
+const SCORE_FLASH_BACKGROUND_COLOR = 0x0c1224;
+const FOG_NEAR = 7.5;
+const FOG_FAR = 17;
 const TRAIL_LENGTH = 9;
+const TRAIL_BASE_OPACITY = 0.3;
+const BALL_EMISSIVE_COLOR = 0x2f4f85;
+const BALL_HIT_EMISSIVE_COLOR = 0x8fb9ff;
+const PADDLE_EMISSIVE_INTENSITY = 0.2;
+const PADDLE_HIT_EMISSIVE_INTENSITY = 0.82;
+
+// Arena enclosure
+const FLOOR_COLOR = 0x0a0f1c;
+const FLOOR_ROUGHNESS = 0.35;
+const FLOOR_METALNESS = 1;
+const FLOOR_REFLECTOR_OPACITY = 0.42;
+const FLOOR_REFLECTOR_TEXTURE_SIZE = 256;
+
+const FLOOR_TRIM_COLOR = 0x2f90ff;
+const FLOOR_TRIM_OPACITY = 0.8;
+
+const WALL_OPACITY = 0.16;
+const WALL_TRANSMISSION = 0.86;
+const WALL_ROUGHNESS = 0.5;
+const WALL_THICKNESS = 0.05;
+const WALL_IOR = 1.36;
+const WALL_CLEARCOAT = 0.5;
+const WALL_CLEARCOAT_ROUGHNESS = 0.4;
+const WALL_EMISSIVE_INTENSITY = 0.08;
+const PLAYER_WALL_TINT = 0x45d7ff;
+const OPPONENT_WALL_TINT = 0xff9d38;
+const SIDE_WALL_TINT = 0x6f8fd6;
 
 export class GameScene {
   readonly #renderer: THREE.WebGLRenderer;
@@ -24,15 +56,15 @@ export class GameScene {
 
   constructor(canvas: HTMLCanvasElement) {
     this.#renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.#renderer.setClearColor(0x050711, 1);
+    this.#renderer.setClearColor(SCENE_BACKGROUND_COLOR, 1);
     this.#renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
     this.#scene = new THREE.Scene();
-    this.#scene.fog = new THREE.Fog(0x050711, 9, 18);
+    this.#scene.fog = new THREE.Fog(SCENE_BACKGROUND_COLOR, FOG_NEAR, FOG_FAR);
 
     this.#camera = new THREE.PerspectiveCamera(56, 1, 0.1, 50);
-    this.#camera.position.set(0, 2.7, 7.8);
-    this.#camera.lookAt(0, 1.45, -2.5);
+    this.#camera.position.set(0, 2.7, 8.6);
+    this.#camera.lookAt(0, 1.2, -2.5);
 
     this.#scene.add(new THREE.AmbientLight(0xffffff, 0.35));
 
@@ -40,10 +72,9 @@ export class GameScene {
     keyLight.position.set(2.5, 5, 4);
     this.#scene.add(keyLight);
 
-    this.#scene.add(createArenaBounds());
-    this.#scene.add(createFloorGrid());
-    this.#scene.add(createPaddleMovementArea(paddle.playerArea, 0x45d7ff, 0.38));
-    this.#scene.add(createPaddleMovementArea(paddle.opponentArea, 0xff9d38, 0.24));
+    this.#scene.add(createReflectiveFloor());
+    this.#scene.add(createFloorTrim());
+    this.#scene.add(createWallPanels());
 
     this.#playerPaddleMaterial = createPaddleMaterial(0x45d7ff);
     this.#playerPaddle = createPaddle(this.#playerPaddleMaterial);
@@ -54,7 +85,7 @@ export class GameScene {
     this.#scene.add(this.#opponentPaddle);
 
     const ballGeometry = new THREE.SphereGeometry(ball.radius, 24, 16);
-    this.#ballMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f7ff, emissive: 0x1d2746 });
+    this.#ballMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f7ff, emissive: BALL_EMISSIVE_COLOR });
     this.#ball = new THREE.Mesh(ballGeometry, this.#ballMaterial);
     this.#scene.add(this.#ball);
     this.#trail = createBallTrail();
@@ -89,12 +120,14 @@ export class GameScene {
     const isScoreFlashActive = nowSeconds < this.#scoreFlashUntilSeconds;
     const isGameplayActive = snapshot.phase === "running" || snapshot.phase === "serve-delay";
 
-    this.#renderer.setClearColor(isScoreFlashActive ? 0x0c1224 : 0x050711, 1);
+    this.#renderer.setClearColor(isScoreFlashActive ? SCORE_FLASH_BACKGROUND_COLOR : SCENE_BACKGROUND_COLOR, 1);
     this.#ball.scale.setScalar(isHitFlashActive ? 1.24 : 1);
-    this.#ballMaterial.emissive.setHex(isHitFlashActive ? 0x8fb9ff : 0x1d2746);
+    this.#ballMaterial.emissive.setHex(isHitFlashActive ? BALL_HIT_EMISSIVE_COLOR : BALL_EMISSIVE_COLOR);
     this.#playerPaddle.scale.setScalar(isGameplayActive ? 1 : 0.96);
-    this.#playerPaddleMaterial.emissiveIntensity = isHitFlashActive && this.#lastHitSide === "player" ? 0.72 : 0.12;
-    this.#opponentPaddleMaterial.emissiveIntensity = isHitFlashActive && this.#lastHitSide === "opponent" ? 0.72 : 0.12;
+    this.#playerPaddleMaterial.emissiveIntensity =
+      isHitFlashActive && this.#lastHitSide === "player" ? PADDLE_HIT_EMISSIVE_INTENSITY : PADDLE_EMISSIVE_INTENSITY;
+    this.#opponentPaddleMaterial.emissiveIntensity =
+      isHitFlashActive && this.#lastHitSide === "opponent" ? PADDLE_HIT_EMISSIVE_INTENSITY : PADDLE_EMISSIVE_INTENSITY;
 
     this.#renderer.render(this.#scene, this.#camera);
   }
@@ -138,76 +171,108 @@ export class GameScene {
   }
 }
 
-function createArenaBounds(): THREE.LineSegments {
+function createReflectiveFloor(): THREE.Object3D {
+  const geometry = new THREE.PlaneGeometry(arena.width, arena.depth);
+  const reflector = new Reflector(geometry, {
+    textureWidth: FLOOR_REFLECTOR_TEXTURE_SIZE,
+    textureHeight: FLOOR_REFLECTOR_TEXTURE_SIZE,
+    color: FLOOR_COLOR,
+  });
+  reflector.rotateX(-Math.PI / 2);
+  reflector.position.y = 0;
+
+  const surfaceMaterial = new THREE.MeshStandardMaterial({
+    color: FLOOR_COLOR,
+    metalness: FLOOR_METALNESS,
+    roughness: FLOOR_ROUGHNESS,
+    transparent: true,
+    opacity: FLOOR_REFLECTOR_OPACITY,
+    depthWrite: false,
+  });
+  const surface = new THREE.Mesh(geometry, surfaceMaterial);
+  surface.rotateX(-Math.PI / 2);
+  surface.position.y = 0.001;
+
+  const group = new THREE.Group();
+  group.add(reflector);
+  group.add(surface);
+  return group;
+}
+
+function createFloorTrim(): THREE.LineLoop {
   const halfWidth = arena.width / 2;
   const halfDepth = arena.depth / 2;
-  const floor = 0;
-  const ceiling = arena.height;
-  const corners = [
-    new THREE.Vector3(-halfWidth, floor, -halfDepth),
-    new THREE.Vector3(halfWidth, floor, -halfDepth),
-    new THREE.Vector3(halfWidth, floor, halfDepth),
-    new THREE.Vector3(-halfWidth, floor, halfDepth),
-    new THREE.Vector3(-halfWidth, ceiling, -halfDepth),
-    new THREE.Vector3(halfWidth, ceiling, -halfDepth),
-    new THREE.Vector3(halfWidth, ceiling, halfDepth),
-    new THREE.Vector3(-halfWidth, ceiling, halfDepth),
-  ];
-
-  const edges = [
-    corners[0],
-    corners[1],
-    corners[1],
-    corners[2],
-    corners[2],
-    corners[3],
-    corners[3],
-    corners[0],
-    corners[4],
-    corners[5],
-    corners[5],
-    corners[6],
-    corners[6],
-    corners[7],
-    corners[7],
-    corners[4],
-    corners[0],
-    corners[4],
-    corners[1],
-    corners[5],
-    corners[2],
-    corners[6],
-    corners[3],
-    corners[7],
-  ];
-
-  const geometry = new THREE.BufferGeometry().setFromPoints(edges);
-  const material = new THREE.LineBasicMaterial({ color: 0x2f90ff, transparent: true, opacity: 0.55 });
-
-  return new THREE.LineSegments(geometry, material);
-}
-
-function createFloorGrid(): THREE.GridHelper {
-  const grid = new THREE.GridHelper(arena.depth, 8, 0x285c9a, 0x132c4c);
-  grid.position.y = 0.01;
-  grid.scale.x = arena.width / arena.depth;
-  return grid;
-}
-
-function createPaddleMovementArea(
-  area: MovementArea,
-  color: THREE.ColorRepresentation,
-  opacity: number,
-): THREE.LineLoop {
   const geometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(area.minX, area.minY, area.z),
-    new THREE.Vector3(area.maxX, area.minY, area.z),
-    new THREE.Vector3(area.maxX, area.maxY, area.z),
-    new THREE.Vector3(area.minX, area.maxY, area.z),
+    new THREE.Vector3(-halfWidth, 0.02, -halfDepth),
+    new THREE.Vector3(halfWidth, 0.02, -halfDepth),
+    new THREE.Vector3(halfWidth, 0.02, halfDepth),
+    new THREE.Vector3(-halfWidth, 0.02, halfDepth),
   ]);
-  const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+  const material = new THREE.LineBasicMaterial({
+    color: FLOOR_TRIM_COLOR,
+    transparent: true,
+    opacity: FLOOR_TRIM_OPACITY,
+  });
 
   return new THREE.LineLoop(geometry, material);
+}
+
+function createWallPanels(): THREE.Group {
+  const halfWidth = arena.width / 2;
+  const halfDepth = arena.depth / 2;
+  const height = arena.height;
+  const group = new THREE.Group();
+
+  group.add(createWall(
+    new THREE.BoxGeometry(0.05, height, arena.depth),
+    new THREE.Vector3(-halfWidth, height / 2, 0),
+    SIDE_WALL_TINT,
+  ));
+  group.add(createWall(
+    new THREE.BoxGeometry(0.05, height, arena.depth),
+    new THREE.Vector3(halfWidth, height / 2, 0),
+    SIDE_WALL_TINT,
+  ));
+  group.add(createWall(
+    new THREE.BoxGeometry(arena.width, 0.05, arena.depth),
+    new THREE.Vector3(0, height, 0),
+    SIDE_WALL_TINT,
+  ));
+  group.add(createWall(
+    new THREE.BoxGeometry(arena.width, height, 0.05),
+    new THREE.Vector3(0, height / 2, -halfDepth),
+    OPPONENT_WALL_TINT,
+  ));
+  group.add(createWall(
+    new THREE.BoxGeometry(arena.width, height, 0.05),
+    new THREE.Vector3(0, height / 2, halfDepth),
+    PLAYER_WALL_TINT,
+  ));
+
+  return group;
+}
+
+function createWall(geometry: THREE.BoxGeometry, position: THREE.Vector3, tint: THREE.ColorRepresentation): THREE.Mesh {
+  const material = new THREE.MeshPhysicalMaterial({
+    color: tint,
+    transparent: true,
+    opacity: WALL_OPACITY,
+    depthWrite: false,
+    roughness: WALL_ROUGHNESS,
+    metalness: 0,
+    transmission: WALL_TRANSMISSION,
+    thickness: WALL_THICKNESS,
+    ior: WALL_IOR,
+    clearcoat: WALL_CLEARCOAT,
+    clearcoatRoughness: WALL_CLEARCOAT_ROUGHNESS,
+    emissive: tint,
+    emissiveIntensity: WALL_EMISSIVE_INTENSITY,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.copy(position);
+
+  return mesh;
 }
 
 function createPaddle(material: THREE.MeshStandardMaterial): THREE.Mesh {
@@ -230,7 +295,7 @@ function createPaddleMaterial(color: THREE.ColorRepresentation): THREE.MeshStand
     clearcoat: 0.48,
     clearcoatRoughness: 0.38,
     emissive: color,
-    emissiveIntensity: 0.12,
+    emissiveIntensity: PADDLE_EMISSIVE_INTENSITY,
   });
 }
 
@@ -241,7 +306,7 @@ function createBallTrail(): THREE.Mesh[] {
     const material = new THREE.MeshBasicMaterial({
       color: 0x9cc9ff,
       transparent: true,
-      opacity: falloff * 0.24,
+      opacity: falloff * TRAIL_BASE_OPACITY,
       depthWrite: false,
     });
     const mesh = new THREE.Mesh(geometry, material);

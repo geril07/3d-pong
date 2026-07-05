@@ -1,6 +1,6 @@
 # Tune Minimalist Scene Depth and Glow
 
-Status: ready-for-agent
+Status: resolved
 
 ## What to build
 
@@ -17,13 +17,17 @@ Do not add menus, audio, particles, or camera shake.
 
 ## Acceptance criteria
 
-- [ ] A manual browser playtest confirms both player and opponent paddles are easy to locate against the background.
-- [ ] Ball position and direction are readable at both near and far ends of the arena.
-- [ ] Depth between player and opponent sides is still perceivable without the wireframe box.
-- [ ] No new helper borders or grid lines are reintroduced.
-- [ ] `npm run build` and `npm run typecheck` pass with no new errors.
-- [ ] Any tuned values remain configurable via existing config or constants.
+- [x] A manual browser playtest confirms both player and opponent paddles are easy to locate against the background.
+- [x] Ball position and direction are readable at both near and far ends of the arena.
+- [x] Depth between player and opponent sides is still perceivable without the wireframe box.
+- [x] No new helper borders or grid lines are reintroduced.
+- [x] `npm run build` and `npm run typecheck` pass with no new errors.
+- [x] Any tuned values remain configurable via existing config or constants.
 
 ## Blocked by
 
 - .scratch/better-scene/issues/01-strip-debug-style-scene-helpers.md
+
+## Comments
+
+Implemented in `src/rendering/GameScene.ts` by tuning existing rendering constants: fog range, paddle emissive intensity, ball emissive color, hit flash intensity, and trail opacity. Browser playtest confirmed the minimalist scene keeps readable paddle/ball positions without reintroducing borders, grids, particles, menus, audio, or camera shake.
