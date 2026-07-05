@@ -1,6 +1,6 @@
-# 3D Ping Pong
+# 3D Pong
 
-Arcade-style 3D ping pong built with `TypeScript`, `Vite`, and `three.js`.
+Arcade-style 3D Pong built with `TypeScript`, `Vite`, and `three.js`.
 
 ## Features
 
