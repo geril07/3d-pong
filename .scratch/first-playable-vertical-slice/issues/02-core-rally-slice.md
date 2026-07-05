@@ -1,6 +1,6 @@
 # Core Rally Slice
 
-Status: ready-for-agent
+Status: resolved
 
 ## Parent
 
@@ -28,3 +28,7 @@ This slice should make the game visibly move and prove the core simulation/rende
 ## Blocked by
 
 - .scratch/first-playable-vertical-slice/issues/01-playable-boot-slice.md
+
+## Answer
+
+Implemented: Pure `GameSimulation` + `stepGame` with zero Three.js dependency. Pointer-lock mouse → paddle movement with clamping to movement area. Ball moves in 3D with arcade bounce off all walls/floor/ceiling. Automated tests cover ball stepping, bounces, and paddle clamping. Remaining: paddle movement area visual indicator (tracked in issue 06).

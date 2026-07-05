@@ -1,6 +1,6 @@
 # Default Bot Slice
 
-Status: ready-for-agent
+Status: resolved
 
 ## Parent
 
@@ -29,3 +29,7 @@ This slice should create a full player-vs-bot match. It should not add difficult
 
 - .scratch/first-playable-vertical-slice/issues/03-scoring-and-serve-slice.md
 - .scratch/first-playable-vertical-slice/issues/04-paddle-collision-and-drag-hit-slice.md
+
+## Answer
+
+Implemented: Bot paddle on opponent side, moves in its own movement area under configurable speed limits (no teleporting), predicts intercept via `chooseBotTarget` (wall-bounce reflection), adds tracking error for misses, returns through shared paddle collision and Drag-Hit rules. Single configurable Default Bot profile. Full automated tests.

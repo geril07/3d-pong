@@ -1,6 +1,6 @@
 # Randomize Serve Direction
 
-Status: ready-for-agent
+Status: resolved
 
 ## What to build
 
@@ -22,3 +22,7 @@ The implementation should be testable without flaky probability checks: randomne
 ## Blocked by
 
 None - can start immediately
+
+## Answer
+
+Implemented: `chooseServeAim` produces continuous random aim offsets (x,y) with min 0.35 offset from center via `randomSignedServeOffsetFactor`. First serve and post-score target-side rules preserved. Serve events still report target side. Velocity remains reachable. Tests use injected deterministic aim values instead of relying on chance.

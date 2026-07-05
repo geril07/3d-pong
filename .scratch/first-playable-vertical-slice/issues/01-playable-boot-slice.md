@@ -1,6 +1,6 @@
 # Playable Boot Slice
 
-Status: ready-for-agent
+Status: resolved
 
 ## Parent
 
@@ -27,3 +27,7 @@ This slice should establish the runnable TypeScript/Three.js foundation and the 
 ## Blocked by
 
 None - can start immediately
+
+## Answer
+
+Implemented: Vite + TypeScript browser app boots directly into gameplay with Three.js scene, fixed behind-player camera, pointer-lock mouse input on canvas click, pause on Escape/pointer-lock loss with visible status overlay. Pure simulation core separated from rendering via snapshot-based `GameSimulation`/`GameRuntime` seam.

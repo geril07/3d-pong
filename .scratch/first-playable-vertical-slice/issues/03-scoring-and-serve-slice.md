@@ -1,6 +1,6 @@
 # Scoring And Serve Slice
 
-Status: ready-for-agent
+Status: resolved
 
 ## Parent
 
@@ -28,3 +28,7 @@ This slice should make the game loop complete enough to win, lose, and replay, e
 ## Blocked by
 
 - .scratch/first-playable-vertical-slice/issues/02-core-rally-slice.md
+
+## Answer
+
+Implemented: Scoring Planes behind both sides, point awarded on crossing, score UI, ball + both paddles reset after score, auto serve after 0.9s delay toward losing side, first-to-5 match, match-over display with R-to-restart. Full automated test coverage.

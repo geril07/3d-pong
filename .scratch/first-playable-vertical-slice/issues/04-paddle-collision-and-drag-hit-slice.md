@@ -1,6 +1,6 @@
 # Paddle Collision And Drag-Hit Slice
 
-Status: ready-for-agent
+Status: resolved
 
 ## Parent
 
@@ -30,3 +30,7 @@ This slice should make player returns feel skill-based through paddle movement w
 ## Blocked by
 
 - .scratch/first-playable-vertical-slice/issues/02-core-rally-slice.md
+
+## Answer
+
+Implemented: Ball bounces off paddles, configurable Forgiving Hitbox, Buffer Zone is non-collider, contact-position angle changes, Drag-Hit from smoothed/clamped paddle velocity (x and y influence, anti-jitter threshold, speed bonus), speed clamping between min/max. Zero charge-hit code. Full automated tests.
