@@ -145,9 +145,9 @@ export type GameSnapshot = GameState;
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
   arena: {
-    width: 6,
-    height: 3.2,
-    depth: 8,
+    width: 9.36,
+    height: 4.608,
+    depth: 9.2,
     scoringPlaneOffset: 0.45,
   },
   ball: {
@@ -167,18 +167,18 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     maxSpeed: 8,
     velocitySmoothing: 0.7,
     playerArea: {
-      minX: -2.55,
-      maxX: 2.55,
+      minX: -4.23,
+      maxX: 4.23,
       minY: 0.3,
-      maxY: 2.9,
-      z: 3.75,
+      maxY: 4.308,
+      z: 4.35,
     },
     opponentArea: {
-      minX: -2.55,
-      maxX: 2.55,
+      minX: -4.23,
+      maxX: 4.23,
       minY: 0.3,
-      maxY: 2.9,
-      z: -3.75,
+      maxY: 4.308,
+      z: -4.35,
     },
   },
   collision: {
