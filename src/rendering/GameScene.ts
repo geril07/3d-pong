@@ -93,10 +93,8 @@ export class GameScene {
     this.#ball.scale.setScalar(isHitFlashActive ? 1.24 : 1);
     this.#ballMaterial.emissive.setHex(isHitFlashActive ? 0x8fb9ff : 0x1d2746);
     this.#playerPaddle.scale.setScalar(isGameplayActive ? 1 : 0.96);
-    this.#playerPaddleMaterial.emissive.setHex(isHitFlashActive && this.#lastHitSide === "player" ? 0x164960 : 0x000000);
-    this.#opponentPaddleMaterial.emissive.setHex(
-      isHitFlashActive && this.#lastHitSide === "opponent" ? 0x5a2d08 : 0x000000,
-    );
+    this.#playerPaddleMaterial.emissiveIntensity = isHitFlashActive && this.#lastHitSide === "player" ? 0.72 : 0.12;
+    this.#opponentPaddleMaterial.emissiveIntensity = isHitFlashActive && this.#lastHitSide === "opponent" ? 0.72 : 0.12;
 
     this.#renderer.render(this.#scene, this.#camera);
   }
@@ -219,7 +217,21 @@ function createPaddle(material: THREE.MeshStandardMaterial): THREE.Mesh {
 }
 
 function createPaddleMaterial(color: THREE.ColorRepresentation): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.38, metalness: 0.1 });
+  return new THREE.MeshPhysicalMaterial({
+    color,
+    transparent: true,
+    opacity: 0.58,
+    depthWrite: false,
+    roughness: 0.62,
+    metalness: 0,
+    transmission: 0.22,
+    thickness: 0.18,
+    ior: 1.36,
+    clearcoat: 0.48,
+    clearcoatRoughness: 0.38,
+    emissive: color,
+    emissiveIntensity: 0.12,
+  });
 }
 
 function createBallTrail(): THREE.Mesh[] {
