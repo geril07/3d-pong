@@ -134,6 +134,7 @@ export type GameState = Readonly<{
   score: Readonly<Record<Side, number>>;
   winner: Side | null;
   ball: BallState;
+  playerTarget: Vector2;
   playerPaddle: PaddleState;
   opponentPaddle: PaddleState;
   bot: BotState;
@@ -251,6 +252,10 @@ export function createInitialGameState(config = DEFAULT_GAME_CONFIG): GameState 
       ...createResetBall(config),
       radius: config.ball.radius,
     },
+    playerTarget: {
+      x: playerPaddle.position.x,
+      y: playerPaddle.position.y,
+    },
     playerPaddle,
     opponentPaddle,
     bot: createBotState(config.paddle.opponentArea),
@@ -305,10 +310,11 @@ export function stepGame(
     return { ...state, events: [] };
   }
 
-  const playerPaddle = movePaddle(state.playerPaddle, input.playerMovement, dt, config);
+  const playerTarget = movePlayerTarget(state.playerTarget, input.playerMovement, state.playerPaddle.movementArea);
+  const playerPaddle = movePaddleTowardTarget(state.playerPaddle, playerTarget, dt, config);
 
   if (state.phase === "serve-delay") {
-    return stepServeDelay(state, playerPaddle, dt, config);
+    return stepServeDelay(state, playerTarget, playerPaddle, dt, config);
   }
 
   const botStep = moveBot(state.opponentPaddle, state.bot, state.ball, state.activeTimeSeconds, dt, config);
@@ -333,6 +339,7 @@ export function stepGame(
     ...state,
     activeTimeSeconds: state.activeTimeSeconds + dt,
     ball,
+    playerTarget,
     playerPaddle,
     opponentPaddle: botStep.paddle,
     bot: botStep.bot,
@@ -342,6 +349,7 @@ export function stepGame(
 
 function stepServeDelay(
   state: GameState,
+  playerTarget: Vector2,
   playerPaddle: PaddleState,
   deltaSeconds: number,
   config: GameConfig,
@@ -353,6 +361,7 @@ function stepServeDelay(
       ...state,
       activeTimeSeconds: state.activeTimeSeconds + deltaSeconds,
       serveTimerSeconds,
+      playerTarget,
       playerPaddle,
       opponentPaddle: {
         ...state.opponentPaddle,
@@ -368,6 +377,7 @@ function stepServeDelay(
     phaseBeforePause: "running",
     activeTimeSeconds: state.activeTimeSeconds + deltaSeconds,
     serveTimerSeconds: 0,
+    playerTarget,
     ball: {
       ...state.ball,
       velocity: createServeVelocity(state.nextServeToward, config),
@@ -387,6 +397,8 @@ function applyScore(
   deltaSeconds: number,
   config: GameConfig,
 ): GameState {
+  const playerPaddle = createPaddle(config.paddle.playerArea);
+  const opponentPaddle = createPaddle(config.paddle.opponentArea);
   const score = {
     ...state.score,
     [scoreEvent.scoringSide]: state.score[scoreEvent.scoringSide] + 1,
@@ -407,8 +419,12 @@ function applyScore(
       ...createResetBall(config),
       radius: state.ball.radius,
     },
-    playerPaddle: createPaddle(config.paddle.playerArea),
-    opponentPaddle: createPaddle(config.paddle.opponentArea),
+    playerTarget: {
+      x: playerPaddle.position.x,
+      y: playerPaddle.position.y,
+    },
+    playerPaddle,
+    opponentPaddle,
     bot: createBotState(config.paddle.opponentArea),
     events: [scoreEvent],
   };
@@ -504,6 +520,50 @@ function moveBot(
   return {
     paddle: nextPaddle,
     bot: { target },
+  };
+}
+
+function movePlayerTarget(target: Vector2, movement: Vector2, area: MovementArea): Vector2 {
+  return {
+    x: clamp(target.x + movement.x, area.minX, area.maxX),
+    y: clamp(target.y + movement.y, area.minY, area.maxY),
+  };
+}
+
+function movePaddleTowardTarget(
+  paddle: PaddleState,
+  target: Vector2,
+  deltaSeconds: number,
+  config: GameConfig,
+  maxSpeed = config.paddle.maxSpeed,
+): PaddleState {
+  const nextPosition = {
+    x: clamp(target.x, paddle.movementArea.minX, paddle.movementArea.maxX),
+    y: clamp(target.y, paddle.movementArea.minY, paddle.movementArea.maxY),
+    z: paddle.movementArea.z,
+  };
+  const movementForVelocity = limitVector(
+    {
+      x: nextPosition.x - paddle.position.x,
+      y: nextPosition.y - paddle.position.y,
+    },
+    maxSpeed * deltaSeconds,
+  );
+  const rawVelocity = {
+    x: movementForVelocity.x / deltaSeconds,
+    y: movementForVelocity.y / deltaSeconds,
+    z: 0,
+  };
+  const smoothing = clamp(config.paddle.velocitySmoothing, 0, 1);
+
+  return {
+    ...paddle,
+    position: nextPosition,
+    velocity: {
+      x: lerp(paddle.velocity.x, rawVelocity.x, smoothing),
+      y: lerp(paddle.velocity.y, rawVelocity.y, smoothing),
+      z: 0,
+    },
   };
 }
 

@@ -19,6 +19,7 @@ const RUNNING_STATE = createRunningState();
 describe("stepGame", () => {
   it("initializes with input paused and a deterministic pending first serve", () => {
     const state = createInitialGameState();
+    const playerCenter = centerOf(DEFAULT_GAME_CONFIG.paddle.playerArea);
 
     expect(state.phase).toBe("input-not-captured");
     expect(state.phaseBeforePause).toBe("serve-delay");
@@ -28,7 +29,8 @@ describe("stepGame", () => {
     expect(state.winner).toBeNull();
     expect(state.ball.position).toEqual({ x: 0, y: DEFAULT_GAME_CONFIG.arena.height / 2, z: 0 });
     expect(state.ball.velocity).toEqual({ x: 0, y: 0, z: 0 });
-    expect(state.playerPaddle.position).toEqual(centerOf(DEFAULT_GAME_CONFIG.paddle.playerArea));
+    expect(state.playerTarget).toEqual({ x: playerCenter.x, y: playerCenter.y });
+    expect(state.playerPaddle.position).toEqual(playerCenter);
     expect(state.opponentPaddle.position).toEqual(centerOf(DEFAULT_GAME_CONFIG.paddle.opponentArea));
     expect(state.events).toEqual([]);
   });
@@ -47,6 +49,7 @@ describe("stepGame", () => {
   });
 
   it("clamps large delta times before moving gameplay", () => {
+    const area = DEFAULT_GAME_CONFIG.paddle.playerArea;
     const state = withBall(RUNNING_STATE, {
       position: { x: 0, y: 1.5, z: 0 },
       velocity: { x: 10, y: 0, z: 0 },
@@ -56,7 +59,7 @@ describe("stepGame", () => {
 
     expect(next.activeTimeSeconds).toBeCloseTo(0.1);
     expect(next.ball.position.x).toBeCloseTo(1);
-    expect(next.playerPaddle.position.x).toBeCloseTo(RUNNING_STATE.playerPaddle.position.x + 0.8);
+    expect(next.playerPaddle.position.x).toBe(area.maxX);
   });
 
   it.each([0, -0.25])("ignores %s second delta times", (deltaSeconds) => {
@@ -179,6 +182,19 @@ describe("stepGame", () => {
 
     expect(next.playerPaddle.position.x).toBeLessThanOrEqual(RUNNING_STATE.playerPaddle.movementArea.maxX);
     expect(next.playerPaddle.position.y).toBeGreaterThanOrEqual(RUNNING_STATE.playerPaddle.movementArea.minY);
+  });
+
+  it("applies the latest player target immediately instead of queueing prior movement", () => {
+    const frameSeconds = 1 / 60;
+    const firstFrame = stepGame(RUNNING_STATE, { playerMovement: { x: 0.8, y: 0 } }, frameSeconds);
+    const reversed = stepGame(firstFrame, { playerMovement: { x: -0.5, y: 0 } }, frameSeconds);
+    const idle = stepGame(firstFrame, EMPTY_INPUT, frameSeconds);
+
+    expect(firstFrame.playerTarget.x).toBeCloseTo(RUNNING_STATE.playerPaddle.position.x + 0.8);
+    expect(firstFrame.playerPaddle.position.x).toBeCloseTo(firstFrame.playerTarget.x);
+    expect(reversed.playerTarget.x).toBeCloseTo(RUNNING_STATE.playerPaddle.position.x + 0.3);
+    expect(reversed.playerPaddle.position.x).toBeCloseTo(reversed.playerTarget.x);
+    expect(idle.playerPaddle.position.x).toBeCloseTo(firstFrame.playerPaddle.position.x);
   });
 
   it("clamps player paddle movement at all edges and derives velocity from clamped movement", () => {
@@ -332,6 +348,7 @@ describe("stepGame", () => {
     expect(next.serveTimerSeconds).toBe(DEFAULT_GAME_CONFIG.serve.delaySeconds);
     expect(next.ball.position).toEqual(reset.ball.position);
     expect(next.ball.velocity).toEqual({ x: 0, y: 0, z: 0 });
+    expect(next.playerTarget).toEqual({ x: reset.playerPaddle.position.x, y: reset.playerPaddle.position.y });
     expect(next.playerPaddle).toEqual(reset.playerPaddle);
     expect(next.opponentPaddle).toEqual(reset.opponentPaddle);
     expect(next.bot).toEqual(reset.bot);
@@ -935,8 +952,14 @@ function centerOf(area: { minX: number; maxX: number; minY: number; maxY: number
 }
 
 function withPlayerPaddle(state: GameState, paddle: Partial<PaddleState>): GameState {
+  const position = paddle.position ?? state.playerPaddle.position;
+
   return {
     ...state,
+    playerTarget: {
+      x: position.x,
+      y: position.y,
+    },
     playerPaddle: {
       ...state.playerPaddle,
       ...paddle,
