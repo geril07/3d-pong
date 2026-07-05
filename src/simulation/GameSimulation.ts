@@ -43,6 +43,7 @@ export type BallConfig = Readonly<{
   serveSpeed: number;
   minSpeed: number;
   maxSpeed: number;
+  rallySpeedIncreasePerHit: number;
   serveX: number;
   serveY: number;
 }>;
@@ -152,9 +153,10 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   },
   ball: {
     radius: 0.13,
-    serveSpeed: 3.7,
-    minSpeed: 2.6,
-    maxSpeed: 7.2,
+    serveSpeed: 4.5,
+    minSpeed: 3.2,
+    maxSpeed: 8,
+    rallySpeedIncreasePerHit: 0.5,
     serveX: 0.35,
     serveY: 0.18,
   },
@@ -749,7 +751,11 @@ function createPaddleReturnVelocity(
     0,
     config.collision.maxDragSpeedBonus,
   );
-  const speed = clamp(vectorLength(incomingVelocity) + speedBonus, config.ball.minSpeed, config.ball.maxSpeed);
+  const speed = clamp(
+    vectorLength(incomingVelocity) + config.ball.rallySpeedIncreasePerHit + speedBonus,
+    config.ball.minSpeed,
+    config.ball.maxSpeed,
+  );
 
   return scale(direction, speed);
 }

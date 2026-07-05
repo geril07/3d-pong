@@ -6,6 +6,7 @@ import {
   restartGame,
   setInputCaptured,
   stepGame,
+  type BallConfig,
   type BallState,
   type BotConfig,
   type CollisionConfig,
@@ -579,7 +580,7 @@ describe("stepGame", () => {
     const next = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: jitter, y: 0 }), EMPTY_INPUT, 0.05);
 
     expect(next.ball.velocity.x).toBeCloseTo(0);
-    expect(speedOf(next.ball.velocity)).toBeCloseTo(3);
+    expect(speedOf(next.ball.velocity)).toBeCloseTo(3 + DEFAULT_GAME_CONFIG.ball.rallySpeedIncreasePerHit);
   });
 
   it("does not apply Drag-Hit direction or speed at the exact anti-jitter threshold", () => {
@@ -588,7 +589,20 @@ describe("stepGame", () => {
 
     expect(next.ball.velocity.x).toBeCloseTo(0);
     expect(next.ball.velocity.y).toBeCloseTo(0);
-    expect(speedOf(next.ball.velocity)).toBeCloseTo(3);
+    expect(speedOf(next.ball.velocity)).toBeCloseTo(3 + DEFAULT_GAME_CONFIG.ball.rallySpeedIncreasePerHit);
+  });
+
+  it("adds configurable rally speed after each paddle hit", () => {
+    const withoutRamp = stepGame(
+      createPlayerHitState({ x: 0, y: 0 }, { x: 0, y: 0 }),
+      EMPTY_INPUT,
+      0.05,
+      ballConfig({ rallySpeedIncreasePerHit: 0 }),
+    );
+    const withRamp = stepGame(createPlayerHitState({ x: 0, y: 0 }, { x: 0, y: 0 }), EMPTY_INPUT, 0.05);
+
+    expect(speedOf(withoutRamp.ball.velocity)).toBeCloseTo(DEFAULT_GAME_CONFIG.ball.minSpeed);
+    expect(speedOf(withRamp.ball.velocity)).toBeCloseTo(3 + DEFAULT_GAME_CONFIG.ball.rallySpeedIncreasePerHit);
   });
 
   it("clamps ball speed after paddle collision", () => {
@@ -971,6 +985,16 @@ function collisionConfig(overrides: Partial<CollisionConfig>): GameConfig {
     ...DEFAULT_GAME_CONFIG,
     collision: {
       ...DEFAULT_GAME_CONFIG.collision,
+      ...overrides,
+    },
+  };
+}
+
+function ballConfig(overrides: Partial<BallConfig>): GameConfig {
+  return {
+    ...DEFAULT_GAME_CONFIG,
+    ball: {
+      ...DEFAULT_GAME_CONFIG.ball,
       ...overrides,
     },
   };
