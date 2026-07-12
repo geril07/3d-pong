@@ -15,7 +15,6 @@ const FOG_NEAR = 16;
 const FOG_FAR = 34;
 const TRAIL_LENGTH = 9;
 const BALL_EMISSIVE_COLOR = 0x001122;
-const BALL_HIT_EMISSIVE_COLOR = 0x44ccff;
 const WALL_OPACITY = 0.03;
 const SIDE_WALL_TINT = 0x9186ff;
 const WALL_GEOMETRY_THICKNESS = 0.0375;
@@ -29,7 +28,6 @@ export class GameScene {
   readonly #camera: THREE.PerspectiveCamera;
   readonly #composer: EffectComposer;
   readonly #backdrop: THREE.Sprite;
-  readonly #ballMaterial: THREE.MeshStandardMaterial;
   readonly #playerPaddleMaterial: THREE.MeshBasicMaterial;
   readonly #opponentPaddleMaterial: THREE.MeshBasicMaterial;
   readonly #ball: THREE.Mesh;
@@ -38,7 +36,6 @@ export class GameScene {
   #trail: THREE.Mesh[];
   #trailPositions: THREE.Vector3[] = [];
   #lastTrailPosition: THREE.Vector3 | null = null;
-  #hitFlashUntilSeconds = 0;
   #scoreFlashUntilSeconds = 0;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -107,12 +104,14 @@ export class GameScene {
     this.#scene.add(this.#opponentPaddle);
 
     const ballGeometry = new THREE.SphereGeometry(ball.radius, 24, 16);
-    this.#ballMaterial = new THREE.MeshStandardMaterial({
-      color: 0x0088ff,
-      emissive: BALL_EMISSIVE_COLOR,
-      transparent: true,
-    });
-    this.#ball = new THREE.Mesh(ballGeometry, this.#ballMaterial);
+    this.#ball = new THREE.Mesh(
+      ballGeometry,
+      new THREE.MeshStandardMaterial({
+        color: 0x075b73,
+        emissive: BALL_EMISSIVE_COLOR,
+        transparent: true,
+      }),
+    );
     this.#ball.renderOrder = 1;
     this.#scene.add(this.#ball);
     this.#trail = createBallTrail();
@@ -164,7 +163,6 @@ export class GameScene {
     this.#ball.rotation.y = snapshot.activeTimeSeconds * 1.5;
 
     const nowSeconds = performance.now() / 1000;
-    const isHitFlashActive = nowSeconds < this.#hitFlashUntilSeconds;
     const isScoreFlashActive = nowSeconds < this.#scoreFlashUntilSeconds;
     const isGameplayActive =
       snapshot.phase === "running" || snapshot.phase === "serve-delay";
@@ -175,10 +173,6 @@ export class GameScene {
         : SCENE_BACKGROUND_COLOR,
       1,
     );
-    this.#ball.scale.setScalar(isHitFlashActive ? 1.24 : 1);
-    this.#ballMaterial.emissive.setHex(
-      isHitFlashActive ? BALL_HIT_EMISSIVE_COLOR : BALL_EMISSIVE_COLOR,
-    );
     this.#playerPaddle.scale.setScalar(isGameplayActive ? 1 : 0.96);
 
     this.#composer.render();
@@ -188,10 +182,6 @@ export class GameScene {
     const nowSeconds = performance.now() / 1000;
 
     for (const event of snapshot.events) {
-      if (event.type === "paddle-hit") {
-        this.#hitFlashUntilSeconds = nowSeconds + 0.14;
-      }
-
       if (event.type === "score") {
         this.#scoreFlashUntilSeconds = nowSeconds + 0.42;
         this.#trailPositions = [];
