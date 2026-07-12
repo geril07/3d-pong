@@ -62,8 +62,9 @@ function syncStatus(): void {
   statusPanel.classList.toggle("is-match-over", isMatchOver);
   statusPanel.hidden = isMenuOpen || isMatchOver;
 
-  if (snapshot.events.some((event) => event.type === "score")) {
-    triggerScoreFeedback();
+  const scoreEvent = snapshot.events.find((event) => event.type === "score");
+  if (scoreEvent?.type === "score") {
+    triggerScoreFeedback(scoreEvent.scoringSide);
   }
 
   if (snapshot.phase === "match-over") {
@@ -85,11 +86,12 @@ function syncStatus(): void {
       : "Click the arena to capture mouse input. Simulation is paused.";
 }
 
-function triggerScoreFeedback(): void {
+function triggerScoreFeedback(scoringSide: "player" | "opponent"): void {
   window.clearTimeout(scoreFeedbackTimeout);
-  scorePanel.classList.add("is-scoring");
+  scorePanel.classList.remove("is-scoring-player", "is-scoring-opponent");
+  scorePanel.classList.add(`is-scoring-${scoringSide}`);
   scoreFeedbackTimeout = window.setTimeout(() => {
-    scorePanel.classList.remove("is-scoring");
+    scorePanel.classList.remove("is-scoring-player", "is-scoring-opponent");
   }, 420);
 }
 

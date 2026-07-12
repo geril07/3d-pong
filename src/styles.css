@@ -39,21 +39,30 @@ body {
   min-width: min(92vw, 360px);
   justify-content: center;
   padding: 10px 14px;
-  border: 1px solid rgba(122, 202, 255, 0.34);
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: rgba(5, 7, 17, 0.62);
+  background:
+    linear-gradient(#050711, #050711) padding-box,
+    linear-gradient(100deg, rgba(75, 225, 255, 0.66), rgba(105, 122, 255, 0.42) 52%, rgba(255, 82, 211, 0.66)) border-box;
+  box-shadow: 0 0 18px rgba(75, 225, 255, 0.04), 0 0 18px rgba(255, 82, 211, 0.04);
   pointer-events: none;
   transform: translateX(-50%);
   transition:
-    border-color 140ms ease,
     box-shadow 140ms ease,
     transform 140ms ease;
 }
 
-#score-panel.is-scoring {
+#score-panel.is-scoring-player,
+#score-panel.is-scoring-opponent {
   animation: score-pop 420ms ease-out;
-  border-color: rgba(255, 216, 122, 0.72);
-  box-shadow: 0 0 34px rgba(255, 194, 89, 0.22);
+}
+
+#score-panel.is-scoring-player {
+  box-shadow: -12px 0 34px rgba(75, 225, 255, 0.38);
+}
+
+#score-panel.is-scoring-opponent {
+  box-shadow: 12px 0 34px rgba(255, 82, 211, 0.38);
 }
 
 .score-side {
@@ -84,15 +93,16 @@ body {
   top: 50%;
   width: min(88vw, 430px);
   padding: 18px 20px;
-  border: 1px solid rgba(122, 202, 255, 0.42);
+  border: 1px solid transparent;
   border-radius: 16px;
-  background: rgba(5, 7, 17, 0.72);
-  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.38);
+  background:
+    linear-gradient(#050711, #050711) padding-box,
+    linear-gradient(135deg, rgba(75, 225, 255, 0.72), rgba(105, 122, 255, 0.44) 52%, rgba(255, 82, 211, 0.72)) border-box;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.38), 0 0 20px rgba(75, 225, 255, 0.05), 0 0 20px rgba(255, 82, 211, 0.05);
   pointer-events: none;
   text-align: center;
   transform: translate(-50%, -50%);
   transition:
-    border-color 140ms ease,
     opacity 140ms ease,
     transform 140ms ease;
 }
@@ -105,6 +115,7 @@ body {
   text-align: left;
   transform: none;
   opacity: 0.76;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
 }
 
 #status-panel.is-paused {
@@ -117,8 +128,7 @@ body {
 }
 
 #status-panel.is-match-over {
-  border-color: rgba(255, 216, 122, 0.7);
-  box-shadow: 0 18px 60px rgba(255, 194, 89, 0.14);
+  box-shadow: 0 18px 60px rgba(255, 82, 211, 0.16);
 }
 
 #pause-actions {
@@ -133,23 +143,40 @@ body {
 }
 
 button {
-  border: 1px solid rgba(145, 134, 255, 0.72);
+  border: 1px solid transparent;
   border-radius: 999px;
   padding: 11px 22px;
-  background: #8d7dff;
-  color: #070713;
+  background:
+    linear-gradient(#0c0e20, #0c0e20) padding-box,
+    linear-gradient(100deg, rgba(75, 225, 255, 0.82), rgba(105, 122, 255, 0.62) 52%, rgba(255, 82, 211, 0.82)) border-box;
+  color: #f5f7ff;
   cursor: pointer;
   font: inherit;
   font-weight: 760;
+  box-shadow: 0 0 16px rgba(75, 225, 255, 0.06), 0 0 16px rgba(255, 82, 211, 0.05);
+  transition: filter 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
 button:hover {
-  background: #a79cff;
+  filter: brightness(1.1);
+  box-shadow: 0 0 20px rgba(75, 225, 255, 0.14), 0 0 20px rgba(255, 82, 211, 0.12);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:focus-visible {
+  outline: 2px solid #f5f7ff;
+  outline-offset: 3px;
 }
 
 .secondary-button {
-  background: transparent;
+  background:
+    linear-gradient(#070816, #070816) padding-box,
+    linear-gradient(100deg, rgba(75, 225, 255, 0.5), rgba(255, 82, 211, 0.5)) border-box;
   color: #e8e7ff;
+  box-shadow: none;
 }
 
 #game-menu {
@@ -158,8 +185,8 @@ button:hover {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(3, 4, 12, 0.38);
-  backdrop-filter: blur(8px);
+  background: rgba(3, 4, 12, 0.32);
+  backdrop-filter: blur(5px);
 }
 
 #game-menu[hidden],
@@ -170,15 +197,21 @@ button:hover {
 .menu-card {
   width: min(92vw, 520px);
   padding: clamp(24px, 5vw, 42px);
-  border: 1px solid rgba(145, 134, 255, 0.5);
-  border-radius: 24px;
-  background: linear-gradient(145deg, rgba(20, 20, 43, 0.9), rgba(7, 8, 22, 0.82));
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.48), inset 0 1px rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background:
+    linear-gradient(#050714, #050714) padding-box,
+    linear-gradient(135deg, rgba(75, 225, 255, 0.78), rgba(105, 122, 255, 0.48) 52%, rgba(255, 82, 211, 0.78)) border-box;
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.48),
+    -6px -3px 24px rgba(75, 225, 255, 0.06),
+    6px 4px 24px rgba(255, 82, 211, 0.06),
+    inset 0 1px rgba(255, 255, 255, 0.06);
 }
 
 #menu-eyebrow {
   margin: 0 0 8px;
-  color: #a99fff;
+  color: #66e6ff;
   font-size: 0.72rem;
   font-weight: 760;
   letter-spacing: 0.18em;
@@ -222,7 +255,7 @@ legend,
 .difficulty-options span {
   display: block;
   padding: 10px 6px;
-  border: 1px solid rgba(145, 134, 255, 0.22);
+  border: 1px solid rgba(126, 151, 210, 0.24);
   border-radius: 10px;
   color: #aeb4d0;
   cursor: pointer;
@@ -232,9 +265,10 @@ legend,
 
 .difficulty-options input:checked + span,
 .difficulty-options input:focus-visible + span {
-  border-color: #9b8eff;
-  background: rgba(145, 134, 255, 0.2);
+  border-color: #7bdfff;
+  background: rgba(75, 225, 255, 0.08);
   color: #fff;
+  box-shadow: 0 0 14px rgba(75, 225, 255, 0.08);
 }
 
 .speed-setting {
@@ -251,7 +285,7 @@ legend,
 
 #ball-speed {
   width: 100%;
-  accent-color: #9b8eff;
+  accent-color: #66e6ff;
 }
 
 .speed-limits {
