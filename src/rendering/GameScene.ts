@@ -7,6 +7,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import type { GameSnapshot } from "../simulation/GameRuntime";
 import { DEFAULT_GAME_CONFIG } from "../simulation/GameSimulation";
+import { createArenaRoom } from "./ArenaRoom";
 
 const { arena, ball, paddle } = DEFAULT_GAME_CONFIG;
 const SCENE_BACKGROUND_COLOR = 0x37285c;
@@ -15,9 +16,6 @@ const FOG_NEAR = 16;
 const FOG_FAR = 34;
 const TRAIL_LENGTH = 9;
 const BALL_EMISSIVE_COLOR = 0x001122;
-const WALL_OPACITY = 0.03;
-const SIDE_WALL_TINT = 0x9186ff;
-const WALL_GEOMETRY_THICKNESS = 0.0375;
 const ENVIRONMENT_BLUR = 0.04;
 const BACKDROP_ASPECT = 16 / 9;
 const BACKDROP_DISTANCE = 42;
@@ -92,9 +90,7 @@ export class GameScene {
     frontFill.position.set(0, 3, 7.1);
     this.#scene.add(frontFill);
 
-    this.#scene.add(createPlayfieldFloor());
-    this.#scene.add(createBarrierVolume());
-    this.#scene.add(createArenaFrame());
+    this.#scene.add(createArenaRoom(arena));
 
     this.#playerPaddleMaterial = createPaddleMaterial(0x45d7ff);
     this.#playerPaddle = createPaddle(this.#playerPaddleMaterial, 0.3);
@@ -157,7 +153,11 @@ export class GameScene {
       BACKDROP_DISTANCE;
     const viewportWidth = viewportHeight * this.#camera.aspect;
     const scale = Math.max(viewportWidth / BACKDROP_ASPECT, viewportHeight);
-    this.#backdrop.position.set(0, 0, -BACKDROP_DISTANCE);
+    this.#backdrop.position.set(
+      0,
+      viewportHeight * CAMERA_VERTICAL_OFFSET_RATIO,
+      -BACKDROP_DISTANCE,
+    );
     this.#backdrop.scale.set(scale * BACKDROP_ASPECT, scale, 1);
   }
 
@@ -222,135 +222,6 @@ export class GameScene {
       }
     }
   }
-}
-
-function createPlayfieldFloor(): THREE.Object3D {
-  const geometry = new THREE.PlaneGeometry(arena.width, arena.depth);
-  const material = new THREE.MeshBasicMaterial({
-    color: 0x554778,
-    transparent: true,
-    opacity: 0.1,
-    depthWrite: false,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.rotateX(-Math.PI / 2);
-  mesh.position.y = 0;
-  return mesh;
-}
-
-function createArenaFrame(): THREE.Group {
-  const group = new THREE.Group();
-  const halfWidth = arena.width / 2;
-  const halfDepth = arena.depth / 2;
-  const corners = [
-    new THREE.Vector3(-halfWidth, 0, -halfDepth),
-    new THREE.Vector3(halfWidth, 0, -halfDepth),
-    new THREE.Vector3(halfWidth, 0, halfDepth),
-    new THREE.Vector3(-halfWidth, 0, halfDepth),
-    new THREE.Vector3(-halfWidth, arena.height, -halfDepth),
-    new THREE.Vector3(halfWidth, arena.height, -halfDepth),
-    new THREE.Vector3(halfWidth, arena.height, halfDepth),
-    new THREE.Vector3(-halfWidth, arena.height, halfDepth),
-  ];
-  const edges = [
-    [0, 1],
-    [1, 2],
-    [2, 3],
-    [3, 0],
-    [4, 5],
-    [5, 6],
-    [6, 7],
-    [7, 4],
-    [0, 4],
-    [1, 5],
-    [2, 6],
-    [3, 7],
-  ];
-  const railMaterial = new THREE.MeshBasicMaterial({
-    color: 0x8179ad,
-    transparent: true,
-    opacity: 0.76,
-  });
-
-  for (const [startIndex, endIndex] of edges) {
-    group.add(createRail(corners[startIndex], corners[endIndex], railMaterial));
-  }
-
-  return group;
-}
-
-function createRail(
-  start: THREE.Vector3,
-  end: THREE.Vector3,
-  material: THREE.Material,
-): THREE.Mesh {
-  const direction = new THREE.Vector3().subVectors(end, start);
-  const rail = new THREE.Mesh(
-    new THREE.BoxGeometry(0.035, direction.length(), 0.035),
-    material,
-  );
-  rail.position.copy(start).add(end).multiplyScalar(0.5);
-  rail.quaternion.setFromUnitVectors(
-    new THREE.Vector3(0, 1, 0),
-    direction.normalize(),
-  );
-  return rail;
-}
-
-function createBarrierVolume(): THREE.Group {
-  const halfWidth = arena.width / 2;
-  const halfDepth = arena.depth / 2;
-  const height = arena.height;
-  const group = new THREE.Group();
-
-  group.add(
-    createWall(
-      new THREE.BoxGeometry(WALL_GEOMETRY_THICKNESS, height, arena.depth),
-      new THREE.Vector3(-halfWidth, height / 2, 0),
-      SIDE_WALL_TINT,
-    ),
-  );
-  group.add(
-    createWall(
-      new THREE.BoxGeometry(WALL_GEOMETRY_THICKNESS, height, arena.depth),
-      new THREE.Vector3(halfWidth, height / 2, 0),
-      SIDE_WALL_TINT,
-    ),
-  );
-  group.add(
-    createWall(
-      new THREE.BoxGeometry(arena.width, WALL_GEOMETRY_THICKNESS, arena.depth),
-      new THREE.Vector3(0, height, 0),
-      SIDE_WALL_TINT,
-    ),
-  );
-  group.add(
-    createWall(
-      new THREE.BoxGeometry(arena.width, height, WALL_GEOMETRY_THICKNESS),
-      new THREE.Vector3(0, height / 2, -halfDepth),
-      SIDE_WALL_TINT,
-    ),
-  );
-
-  return group;
-}
-
-function createWall(
-  geometry: THREE.BoxGeometry,
-  position: THREE.Vector3,
-  tint: THREE.ColorRepresentation,
-): THREE.Mesh {
-  const material = new THREE.MeshBasicMaterial({
-    color: tint,
-    transparent: true,
-    opacity: WALL_OPACITY,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.copy(position);
-
-  return mesh;
 }
 
 function createPaddle(
