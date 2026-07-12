@@ -2,7 +2,16 @@ import "./styles.css";
 import { PointerLockController } from "./browser/PointerLockController";
 import { GameRuntime } from "./simulation/GameRuntime";
 import { GameScene } from "./rendering/GameScene";
-import { DEFAULT_GAME_CONFIG } from "./simulation/GameSimulation";
+import {
+  createGameConfig,
+  DEFAULT_GAME_CONFIG,
+  type BotDifficulty,
+  type GameSettings,
+} from "./simulation/GameSimulation";
+
+const BALL_SPEEDS = [0.5, 0.75, 1, 1.5, 2, 3, 4] as const;
+const SETTINGS_KEY = "3d-pong-settings";
+const DEFAULT_SETTINGS: GameSettings = { difficulty: "medium", ballSpeed: 1 };
 
 function requireElement<TElement extends Element>(selector: string): TElement {
   const element = document.querySelector<TElement>(selector);
@@ -21,10 +30,24 @@ const statusHelp = requireElement<HTMLDivElement>("#status-help");
 const scorePanel = requireElement<HTMLDivElement>("#score-panel");
 const playerScore = requireElement<HTMLSpanElement>("#player-score");
 const opponentScore = requireElement<HTMLSpanElement>("#opponent-score");
+const gameMenu = requireElement<HTMLElement>("#game-menu");
+const menuEyebrow = requireElement<HTMLParagraphElement>("#menu-eyebrow");
+const menuTitle = requireElement<HTMLHeadingElement>("#menu-title");
+const playButton = requireElement<HTMLButtonElement>("#play-button");
+const resumeButton = requireElement<HTMLButtonElement>("#resume-button");
+const exitButton = requireElement<HTMLButtonElement>("#exit-button");
+const speedInput = requireElement<HTMLInputElement>("#ball-speed");
+const speedValue = requireElement<HTMLOutputElement>("#ball-speed-value");
 
 const runtime = new GameRuntime();
 const scene = new GameScene(canvas);
+let settings = loadSettings();
+let isMenuOpen = true;
+let lastPhase = runtime.getSnapshot().phase;
 let scoreFeedbackTimeout: number | undefined;
+
+syncSettingsControls();
+menuTitle.focus();
 
 function syncStatus(): void {
   const snapshot = runtime.getSnapshot();
@@ -37,6 +60,7 @@ function syncStatus(): void {
   statusPanel.classList.toggle("is-running", snapshot.phase === "running" || snapshot.phase === "serve-delay");
   statusPanel.classList.toggle("is-serving", snapshot.phase === "serve-delay");
   statusPanel.classList.toggle("is-match-over", isMatchOver);
+  statusPanel.hidden = isMenuOpen || isMatchOver;
 
   if (snapshot.events.some((event) => event.type === "score")) {
     triggerScoreFeedback();
@@ -44,7 +68,7 @@ function syncStatus(): void {
 
   if (snapshot.phase === "match-over") {
     statusLabel.textContent = `${formatSide(snapshot.winner)} wins`;
-    statusHelp.textContent = "Press R to restart the match.";
+    statusHelp.textContent = "Choose settings for the next match.";
     return;
   }
 
@@ -89,6 +113,13 @@ const pointerLock = new PointerLockController(
 pointerLock.start();
 syncStatus();
 
+playButton.addEventListener("click", startMatch);
+resumeButton.addEventListener("click", () => pointerLock.capture());
+exitButton.addEventListener("click", () => openMenu());
+speedInput.addEventListener("input", () => {
+  speedValue.value = `${BALL_SPEEDS[Number(speedInput.value)]}×`;
+});
+
 let lastFrameTimeMs = performance.now();
 
 function animate(frameTimeMs: number): void {
@@ -96,6 +127,14 @@ function animate(frameTimeMs: number): void {
   lastFrameTimeMs = frameTimeMs;
 
   runtime.update(deltaSeconds, pointerLock.consumeInput());
+  const phase = runtime.getSnapshot().phase;
+
+  if (phase === "match-over" && lastPhase !== "match-over") {
+    document.exitPointerLock();
+    openMenu(runtime.getSnapshot().winner);
+  }
+
+  lastPhase = phase;
   syncStatus();
   scene.render(runtime.getSnapshot());
 
@@ -108,11 +147,55 @@ window.addEventListener("resize", () => {
   scene.resize();
 });
 
-window.addEventListener("keydown", (event) => {
-  if (event.key.toLowerCase() !== "r" || runtime.getSnapshot().phase !== "match-over") {
-    return;
-  }
 
-  runtime.restart();
+function startMatch(): void {
+  settings = readSettingsControls();
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Storage is optional; the match can still start without persistence.
+  }
+  runtime.restart(createGameConfig(settings));
+  lastPhase = runtime.getSnapshot().phase;
+  isMenuOpen = false;
+  gameMenu.hidden = true;
   syncStatus();
-});
+  pointerLock.capture();
+}
+
+function openMenu(winner: "player" | "opponent" | null = null): void {
+  isMenuOpen = true;
+  gameMenu.hidden = false;
+  menuEyebrow.textContent = winner ? "MATCH COMPLETE" : "ARENA SETTINGS";
+  menuTitle.textContent = winner ? `${formatSide(winner)} wins` : "3D PONG";
+  playButton.textContent = winner ? "Play Again" : "Play";
+  if (document.pointerLockElement) document.exitPointerLock();
+  syncStatus();
+  menuTitle.focus();
+}
+
+function syncSettingsControls(): void {
+  const difficulty = document.querySelector<HTMLInputElement>(`input[name="difficulty"][value="${settings.difficulty}"]`);
+  if (difficulty) difficulty.checked = true;
+  const speedIndex = BALL_SPEEDS.indexOf(settings.ballSpeed as (typeof BALL_SPEEDS)[number]);
+  speedInput.value = String(speedIndex < 0 ? 2 : speedIndex);
+  speedValue.value = `${BALL_SPEEDS[Number(speedInput.value)]}×`;
+}
+
+function readSettingsControls(): GameSettings {
+  const difficulty = document.querySelector<HTMLInputElement>('input[name="difficulty"]:checked')?.value as BotDifficulty;
+  return { difficulty, ballSpeed: BALL_SPEEDS[Number(speedInput.value)] };
+}
+
+function loadSettings(): GameSettings {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<GameSettings> | null;
+    const difficulties: readonly string[] = ["easy", "medium", "hard", "expert"];
+    if (saved && difficulties.includes(saved.difficulty ?? "") && BALL_SPEEDS.includes(saved.ballSpeed as never)) {
+      return saved as GameSettings;
+    }
+  } catch {
+    // Invalid browser storage falls back to defaults.
+  }
+  return DEFAULT_SETTINGS;
+}

@@ -31,3 +31,11 @@ _Avoid_: Invisible wall, auto-save zone
 **Rally Tempo Ramp**:
 A configurable speed increase applied after each paddle hit within a rally. It raises pressure over longer exchanges, resets after a point, and stays bounded by the ball speed limits.
 _Avoid_: Hidden timer, sudden difficulty spike
+
+**Ball Speed**:
+A player-selected multiplier applied to the ball's complete speed profile: serve speed, minimum speed, maximum speed, and per-hit Rally Tempo Ramp. It does not change input sensitivity, bot movement, or serve delays.
+_Avoid_: Game speed, simulation speed, time scale
+
+**Bot Difficulty**:
+A player-selected profile for the bot's movement speed, reaction time, and tracking error. The available levels are Easy, Medium, Hard, and Expert; Medium is the default. Expert represents the strongest practical bot but does not guarantee that it can return every ball.
+_Avoid_: Unbeatable, guaranteed win, scripted miss chance

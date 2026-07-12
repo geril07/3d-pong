@@ -99,11 +99,11 @@ export class GameScene {
     this.#scene.add(createArenaFrame());
 
     this.#playerPaddleMaterial = createPaddleMaterial(0x45d7ff);
-    this.#playerPaddle = createPaddle(this.#playerPaddleMaterial, 1.45);
+    this.#playerPaddle = createPaddle(this.#playerPaddleMaterial, 0.3);
     this.#scene.add(this.#playerPaddle);
 
     this.#opponentPaddleMaterial = createPaddleMaterial(0xff5edb);
-    this.#opponentPaddle = createPaddle(this.#opponentPaddleMaterial, 2.8);
+    this.#opponentPaddle = createPaddle(this.#opponentPaddleMaterial, 0.4);
     this.#scene.add(this.#opponentPaddle);
 
     const ballGeometry = new THREE.SphereGeometry(ball.radius, 24, 16);
@@ -356,7 +356,7 @@ function createWall(
 
 function createPaddle(
   material: THREE.MeshBasicMaterial,
-  rimIntensity: number,
+  glowOpacity: number,
 ): THREE.Mesh {
   const geometry = new RoundedBoxGeometry(
     paddle.visibleSize.x,
@@ -366,7 +366,7 @@ function createPaddle(
     Math.min(paddle.visibleSize.x, paddle.visibleSize.y) * 0.08,
   );
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.add(createPaddleRim(material.color, rimIntensity));
+  mesh.add(createPaddleRim(material.color, glowOpacity));
 
   const pane = new THREE.Mesh(
     new RoundedBoxGeometry(
@@ -388,56 +388,75 @@ function createPaddle(
   return mesh;
 }
 
-function createPaddleRim(color: THREE.Color, intensity: number): THREE.Group {
-  const group = new THREE.Group();
-  const thickness =
-    Math.min(paddle.visibleSize.x, paddle.visibleSize.y) * 0.055;
-  const depth = paddle.visibleSize.z * 1.08;
-  const material = new THREE.MeshBasicMaterial({
-    color: color.clone().multiplyScalar(intensity),
+function createPaddleRim(color: THREE.Color, glowOpacity: number): THREE.Mesh {
+  const glowWidth = 0.14;
+  const planeSize = new THREE.Vector2(
+    paddle.visibleSize.x + glowWidth * 2,
+    paddle.visibleSize.y + glowWidth * 2,
+  );
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      color: { value: color },
+      planeSize: { value: planeSize },
+      boxHalfSize: {
+        value: new THREE.Vector2(
+          paddle.visibleSize.x / 2,
+          paddle.visibleSize.y / 2,
+        ),
+      },
+      radius: {
+        value: Math.min(paddle.visibleSize.x, paddle.visibleSize.y) * 0.08,
+      },
+      coreWidth: { value: 0.018 },
+      glowWidth: { value: glowWidth },
+      glowOpacity: { value: glowOpacity },
+    },
+    vertexShader: `
+      uniform vec2 planeSize;
+      varying vec2 positionOnPlane;
+
+      void main() {
+        positionOnPlane = (uv - 0.5) * planeSize;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 color;
+      uniform vec2 boxHalfSize;
+      uniform float radius;
+      uniform float coreWidth;
+      uniform float glowWidth;
+      uniform float glowOpacity;
+      varying vec2 positionOnPlane;
+
+      float roundedBoxDistance(vec2 point, vec2 halfSize, float cornerRadius) {
+        vec2 offset = abs(point) - halfSize + cornerRadius;
+        return min(max(offset.x, offset.y), 0.0)
+          + length(max(offset, 0.0)) - cornerRadius;
+      }
+
+      void main() {
+        float edgeDistance = abs(roundedBoxDistance(positionOnPlane, boxHalfSize, radius));
+        float smoothing = max(fwidth(edgeDistance), 0.0005);
+        float core = 1.0 - smoothstep(coreWidth - smoothing, coreWidth + smoothing, edgeDistance);
+        float glow = 1.0 - smoothstep(coreWidth, glowWidth, edgeDistance);
+        float alpha = max(core * 0.92, glow * glow * glowOpacity);
+
+        gl_FragColor = vec4(color, alpha);
+      }
+    `,
     transparent: true,
-    opacity: 0.82,
     depthTest: false,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
     toneMapped: false,
   });
-  const horizontalGeometry = new RoundedBoxGeometry(
-    paddle.visibleSize.x,
-    thickness,
-    depth,
-    2,
-    thickness * 0.4,
+  const rim = new THREE.Mesh(
+    new THREE.PlaneGeometry(planeSize.x, planeSize.y),
+    material,
   );
-  const verticalGeometry = new RoundedBoxGeometry(
-    thickness,
-    paddle.visibleSize.y - thickness * 2,
-    depth,
-    2,
-    thickness * 0.4,
-  );
-
-  for (const y of [
-    -(paddle.visibleSize.y - thickness) / 2,
-    (paddle.visibleSize.y - thickness) / 2,
-  ]) {
-    const rail = new THREE.Mesh(horizontalGeometry, material);
-    rail.position.y = y;
-    rail.renderOrder = 10;
-    group.add(rail);
-  }
-
-  for (const x of [
-    -(paddle.visibleSize.x - thickness) / 2,
-    (paddle.visibleSize.x - thickness) / 2,
-  ]) {
-    const rail = new THREE.Mesh(verticalGeometry, material);
-    rail.position.x = x;
-    rail.renderOrder = 10;
-    group.add(rail);
-  }
-
-  return group;
+  rim.position.z = paddle.visibleSize.z / 2 + 0.001;
+  rim.renderOrder = 10;
+  return rim;
 }
 
 function createPaddleMaterial(

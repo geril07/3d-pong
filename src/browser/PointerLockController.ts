@@ -25,6 +25,12 @@ export class PointerLockController {
     document.addEventListener("pointerlockerror", this.#handlePointerLockError);
   }
 
+  capture(): void {
+    if (document.pointerLockElement !== this.#canvas) {
+      void this.#canvas.requestPointerLock();
+    }
+  }
+
   stop(): void {
     this.#canvas.removeEventListener("click", this.#handleCanvasClick);
     document.removeEventListener("mousemove", this.#handleMouseMove);
@@ -43,11 +49,7 @@ export class PointerLockController {
   }
 
   readonly #handleCanvasClick = (): void => {
-    if (document.pointerLockElement === this.#canvas) {
-      return;
-    }
-
-    void this.#canvas.requestPointerLock();
+    this.capture();
   };
 
   readonly #handlePointerLockChange = (): void => {

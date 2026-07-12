@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createInitialGameState,
+  createGameConfig,
   DEFAULT_GAME_CONFIG,
   EMPTY_INPUT,
   restartGame,
@@ -16,6 +17,22 @@ import {
 } from "./GameSimulation";
 
 const RUNNING_STATE = createRunningState();
+
+describe("createGameConfig", () => {
+  it("scales the complete ball speed profile and compensates bot timing", () => {
+    const config = createGameConfig({ difficulty: "medium", ballSpeed: 2 });
+
+    expect(config.ball.serveSpeed).toBe(DEFAULT_GAME_CONFIG.ball.serveSpeed * 2);
+    expect(config.ball.minSpeed).toBe(DEFAULT_GAME_CONFIG.ball.minSpeed * 2);
+    expect(config.ball.maxSpeed).toBe(DEFAULT_GAME_CONFIG.ball.maxSpeed * 2);
+    expect(config.ball.rallySpeedIncreasePerHit).toBe(DEFAULT_GAME_CONFIG.ball.rallySpeedIncreasePerHit * 2);
+    expect(config.bot).toEqual({ maxSpeed: 8.4, reactionSeconds: 0.15, trackingError: 0.5 });
+  });
+
+  it("keeps the existing bot as the expert profile", () => {
+    expect(createGameConfig({ difficulty: "expert", ballSpeed: 1 }).bot).toEqual(DEFAULT_GAME_CONFIG.bot);
+  });
+});
 
 describe("stepGame", () => {
   it("initializes with input paused and a deterministic pending first serve", () => {

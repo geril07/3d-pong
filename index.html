@@ -23,7 +23,33 @@
       <div id="status-panel" aria-live="polite">
         <div id="status-label">Input not captured</div>
         <div id="status-help">Click the arena to capture mouse input. Press Escape to release.</div>
+        <div id="pause-actions">
+          <button id="resume-button" type="button">Resume</button>
+          <button id="exit-button" class="secondary-button" type="button">Exit to Menu</button>
+        </div>
       </div>
+      <section id="game-menu" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+        <div class="menu-card">
+          <p id="menu-eyebrow">ARENA SETTINGS</p>
+          <h1 id="menu-title" tabindex="-1">3D PONG</h1>
+          <fieldset>
+            <legend>Difficulty</legend>
+            <div class="difficulty-options">
+              <label><input type="radio" name="difficulty" value="easy" /> <span>Easy</span></label>
+              <label><input type="radio" name="difficulty" value="medium" checked /> <span>Medium</span></label>
+              <label><input type="radio" name="difficulty" value="hard" /> <span>Hard</span></label>
+              <label><input type="radio" name="difficulty" value="expert" /> <span>Expert</span></label>
+            </div>
+          </fieldset>
+          <label class="speed-setting" for="ball-speed">
+            <span>Ball Speed</span>
+            <output id="ball-speed-value" for="ball-speed">1×</output>
+          </label>
+          <input id="ball-speed" type="range" min="0" max="6" value="2" step="1" />
+          <div class="speed-limits" aria-hidden="true"><span>0.5×</span><span>4×</span></div>
+          <button id="play-button" type="button">Play</button>
+        </div>
+      </section>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

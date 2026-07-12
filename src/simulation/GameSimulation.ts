@@ -90,6 +90,13 @@ export type GameConfig = Readonly<{
   serve: ServeConfig;
 }>;
 
+export type BotDifficulty = "easy" | "medium" | "hard" | "expert";
+
+export type GameSettings = Readonly<{
+  difficulty: BotDifficulty;
+  ballSpeed: number;
+}>;
+
 export type BallState = Readonly<{
   position: Vector3;
   velocity: Vector3;
@@ -221,6 +228,34 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     }),
   },
 };
+
+const BOT_DIFFICULTIES: Readonly<Record<BotDifficulty, BotConfig>> = {
+  easy: { maxSpeed: 3.2, reactionSeconds: 0.45, trackingError: 0.75 },
+  medium: { maxSpeed: 4.2, reactionSeconds: 0.3, trackingError: 0.5 },
+  hard: { maxSpeed: 4.8, reactionSeconds: 0.22, trackingError: 0.3 },
+  expert: DEFAULT_GAME_CONFIG.bot,
+};
+
+export function createGameConfig(settings: GameSettings): GameConfig {
+  const bot = BOT_DIFFICULTIES[settings.difficulty];
+  const speed = settings.ballSpeed;
+
+  return {
+    ...DEFAULT_GAME_CONFIG,
+    ball: {
+      ...DEFAULT_GAME_CONFIG.ball,
+      serveSpeed: DEFAULT_GAME_CONFIG.ball.serveSpeed * speed,
+      minSpeed: DEFAULT_GAME_CONFIG.ball.minSpeed * speed,
+      maxSpeed: DEFAULT_GAME_CONFIG.ball.maxSpeed * speed,
+      rallySpeedIncreasePerHit: DEFAULT_GAME_CONFIG.ball.rallySpeedIncreasePerHit * speed,
+    },
+    bot: {
+      ...bot,
+      maxSpeed: bot.maxSpeed * speed,
+      reactionSeconds: bot.reactionSeconds / speed,
+    },
+  };
+}
 
 export const EMPTY_INPUT: InputSnapshot = {
   playerMovement: {
