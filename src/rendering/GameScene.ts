@@ -359,23 +359,6 @@ function createPaddle(
   const mesh = new THREE.Mesh(geometry, material);
   mesh.add(createPaddleRim(material.color, glowOpacity));
 
-  const pane = new THREE.Mesh(
-    new RoundedBoxGeometry(
-      paddle.visibleSize.x * 0.84,
-      paddle.visibleSize.y * 0.78,
-      paddle.visibleSize.z * 0.34,
-      2,
-      Math.min(paddle.visibleSize.x, paddle.visibleSize.y) * 0.04,
-    ),
-    new THREE.MeshBasicMaterial({
-      color: material.color,
-      transparent: true,
-      opacity: 0.11,
-      depthWrite: false,
-    }),
-  );
-  mesh.add(pane);
-
   return mesh;
 }
 
@@ -437,7 +420,6 @@ function createPaddleRim(color: THREE.Color, glowOpacity: number): THREE.Mesh {
       }
     `,
     transparent: true,
-    depthTest: false,
     depthWrite: false,
     toneMapped: false,
   });
