@@ -14,8 +14,8 @@ const SCORE_FLASH_BACKGROUND_COLOR = 0x4c3577;
 const FOG_NEAR = 16;
 const FOG_FAR = 34;
 const TRAIL_LENGTH = 9;
-const BALL_EMISSIVE_COLOR = 0x2f4f85;
-const BALL_HIT_EMISSIVE_COLOR = 0x8fb9ff;
+const BALL_EMISSIVE_COLOR = 0x001122;
+const BALL_HIT_EMISSIVE_COLOR = 0x44ccff;
 const WALL_OPACITY = 0.03;
 const SIDE_WALL_TINT = 0x9186ff;
 const WALL_GEOMETRY_THICKNESS = 0.0375;
@@ -108,12 +108,13 @@ export class GameScene {
 
     const ballGeometry = new THREE.SphereGeometry(ball.radius, 24, 16);
     this.#ballMaterial = new THREE.MeshStandardMaterial({
-      color: 0xf5f7ff,
+      color: 0x0088ff,
       emissive: BALL_EMISSIVE_COLOR,
+      transparent: true,
     });
     this.#ball = new THREE.Mesh(ballGeometry, this.#ballMaterial);
+    this.#ball.renderOrder = 1;
     this.#scene.add(this.#ball);
-    this.#ball.add(createBallHalo());
     this.#trail = createBallTrail();
 
     for (const trailPart of this.#trail) {
@@ -468,18 +469,6 @@ function createPaddleMaterial(
     opacity: 0.08,
     depthWrite: false,
   });
-}
-
-function createBallHalo(): THREE.Mesh {
-  const geometry = new THREE.SphereGeometry(ball.radius * 1.75, 20, 12);
-  const material = new THREE.MeshBasicMaterial({
-    color: 0x66cfff,
-    transparent: true,
-    opacity: 0.16,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-  return new THREE.Mesh(geometry, material);
 }
 
 function createBallTrail(): THREE.Mesh[] {
