@@ -16,16 +16,7 @@ const FOG_FAR = 34;
 const TRAIL_LENGTH = 9;
 const BALL_EMISSIVE_COLOR = 0x2f4f85;
 const BALL_HIT_EMISSIVE_COLOR = 0x8fb9ff;
-const PADDLE_EMISSIVE_INTENSITY = 0.08;
-const PADDLE_HIT_EMISSIVE_INTENSITY = 0.82;
-
-const WALL_OPACITY = 0.2;
-const WALL_TRANSMISSION = 0.78;
-const WALL_ROUGHNESS = 0.2;
-const WALL_THICKNESS = 0.05;
-const WALL_IOR = 1.36;
-const WALL_CLEARCOAT = 0.72;
-const WALL_CLEARCOAT_ROUGHNESS = 0.26;
+const WALL_OPACITY = 0.03;
 const SIDE_WALL_TINT = 0x9186ff;
 const WALL_GEOMETRY_THICKNESS = 0.0375;
 const ENVIRONMENT_BLUR = 0.04;
@@ -39,8 +30,8 @@ export class GameScene {
   readonly #composer: EffectComposer;
   readonly #backdrop: THREE.Sprite;
   readonly #ballMaterial: THREE.MeshStandardMaterial;
-  readonly #playerPaddleMaterial: THREE.MeshStandardMaterial;
-  readonly #opponentPaddleMaterial: THREE.MeshStandardMaterial;
+  readonly #playerPaddleMaterial: THREE.MeshBasicMaterial;
+  readonly #opponentPaddleMaterial: THREE.MeshBasicMaterial;
   readonly #ball: THREE.Mesh;
   readonly #playerPaddle: THREE.Mesh;
   readonly #opponentPaddle: THREE.Mesh;
@@ -49,7 +40,6 @@ export class GameScene {
   #lastTrailPosition: THREE.Vector3 | null = null;
   #hitFlashUntilSeconds = 0;
   #scoreFlashUntilSeconds = 0;
-  #lastHitSide: "player" | "opponent" | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.#renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -72,10 +62,17 @@ export class GameScene {
     this.#camera.position.set(0, 4.05, 11.1);
     this.#camera.lookAt(0, 1.8, -1.6);
 
-    const backdropTexture = new THREE.TextureLoader().load("/textures/cosmic-background.webp");
+    const backdropTexture = new THREE.TextureLoader().load(
+      "/textures/cosmic-background.webp",
+    );
     backdropTexture.colorSpace = THREE.SRGBColorSpace;
     this.#backdrop = new THREE.Sprite(
-      new THREE.SpriteMaterial({ map: backdropTexture, depthTest: false, depthWrite: false, fog: false }),
+      new THREE.SpriteMaterial({
+        map: backdropTexture,
+        depthTest: false,
+        depthWrite: false,
+        fog: false,
+      }),
     );
     this.#backdrop.renderOrder = -100;
     this.#camera.add(this.#backdrop);
@@ -110,7 +107,10 @@ export class GameScene {
     this.#scene.add(this.#opponentPaddle);
 
     const ballGeometry = new THREE.SphereGeometry(ball.radius, 24, 16);
-    this.#ballMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f7ff, emissive: BALL_EMISSIVE_COLOR });
+    this.#ballMaterial = new THREE.MeshStandardMaterial({
+      color: 0xf5f7ff,
+      emissive: BALL_EMISSIVE_COLOR,
+    });
     this.#ball = new THREE.Mesh(ballGeometry, this.#ballMaterial);
     this.#scene.add(this.#ball);
     this.#ball.add(createBallHalo());
@@ -120,10 +120,15 @@ export class GameScene {
       this.#scene.add(trailPart);
     }
 
-    const renderTarget = new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType });
+    const renderTarget = new THREE.WebGLRenderTarget(1, 1, {
+      samples: 4,
+      type: THREE.HalfFloatType,
+    });
     this.#composer = new EffectComposer(this.#renderer, renderTarget);
     this.#composer.addPass(new RenderPass(this.#scene, this.#camera));
-    this.#composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.72, 0.48, 0.72));
+    this.#composer.addPass(
+      new UnrealBloomPass(new THREE.Vector2(1, 1), 0.72, 0.48, 0.72),
+    );
     this.#composer.addPass(new OutputPass());
 
     this.resize();
@@ -138,7 +143,10 @@ export class GameScene {
     this.#renderer.setSize(width, height, false);
     this.#composer?.setSize(width, height);
 
-    const viewportHeight = 2 * Math.tan(THREE.MathUtils.degToRad(this.#camera.fov / 2)) * BACKDROP_DISTANCE;
+    const viewportHeight =
+      2 *
+      Math.tan(THREE.MathUtils.degToRad(this.#camera.fov / 2)) *
+      BACKDROP_DISTANCE;
     const viewportWidth = viewportHeight * this.#camera.aspect;
     const scale = Math.max(viewportWidth / BACKDROP_ASPECT, viewportHeight);
     this.#backdrop.position.set(0, 0, -BACKDROP_DISTANCE);
@@ -157,16 +165,20 @@ export class GameScene {
     const nowSeconds = performance.now() / 1000;
     const isHitFlashActive = nowSeconds < this.#hitFlashUntilSeconds;
     const isScoreFlashActive = nowSeconds < this.#scoreFlashUntilSeconds;
-    const isGameplayActive = snapshot.phase === "running" || snapshot.phase === "serve-delay";
+    const isGameplayActive =
+      snapshot.phase === "running" || snapshot.phase === "serve-delay";
 
-    this.#renderer.setClearColor(isScoreFlashActive ? SCORE_FLASH_BACKGROUND_COLOR : SCENE_BACKGROUND_COLOR, 1);
+    this.#renderer.setClearColor(
+      isScoreFlashActive
+        ? SCORE_FLASH_BACKGROUND_COLOR
+        : SCENE_BACKGROUND_COLOR,
+      1,
+    );
     this.#ball.scale.setScalar(isHitFlashActive ? 1.24 : 1);
-    this.#ballMaterial.emissive.setHex(isHitFlashActive ? BALL_HIT_EMISSIVE_COLOR : BALL_EMISSIVE_COLOR);
+    this.#ballMaterial.emissive.setHex(
+      isHitFlashActive ? BALL_HIT_EMISSIVE_COLOR : BALL_EMISSIVE_COLOR,
+    );
     this.#playerPaddle.scale.setScalar(isGameplayActive ? 1 : 0.96);
-    this.#playerPaddleMaterial.emissiveIntensity =
-      isHitFlashActive && this.#lastHitSide === "player" ? PADDLE_HIT_EMISSIVE_INTENSITY : PADDLE_EMISSIVE_INTENSITY;
-    this.#opponentPaddleMaterial.emissiveIntensity =
-      isHitFlashActive && this.#lastHitSide === "opponent" ? PADDLE_HIT_EMISSIVE_INTENSITY : PADDLE_EMISSIVE_INTENSITY;
 
     this.#composer.render();
   }
@@ -177,7 +189,6 @@ export class GameScene {
     for (const event of snapshot.events) {
       if (event.type === "paddle-hit") {
         this.#hitFlashUntilSeconds = nowSeconds + 0.14;
-        this.#lastHitSide = event.side;
       }
 
       if (event.type === "score") {
@@ -191,7 +202,10 @@ export class GameScene {
   #updateTrail(snapshot: GameSnapshot): void {
     const currentPosition = toVector3(snapshot.ball.position);
 
-    if (!this.#lastTrailPosition || currentPosition.distanceTo(this.#lastTrailPosition) > 0.025) {
+    if (
+      !this.#lastTrailPosition ||
+      currentPosition.distanceTo(this.#lastTrailPosition) > 0.025
+    ) {
       this.#trailPositions.unshift(currentPosition.clone());
       this.#trailPositions = this.#trailPositions.slice(0, TRAIL_LENGTH);
       this.#lastTrailPosition = currentPosition;
@@ -201,7 +215,8 @@ export class GameScene {
       const trailPart = this.#trail[index];
       const trailPosition = this.#trailPositions[index];
 
-      trailPart.visible = Boolean(trailPosition) && snapshot.phase !== "serve-delay";
+      trailPart.visible =
+        Boolean(trailPosition) && snapshot.phase !== "serve-delay";
 
       if (trailPosition) {
         trailPart.position.copy(trailPosition);
@@ -213,9 +228,9 @@ export class GameScene {
 function createPlayfieldFloor(): THREE.Object3D {
   const geometry = new THREE.PlaneGeometry(arena.width, arena.depth);
   const material = new THREE.MeshBasicMaterial({
-    color: 0x171027,
+    color: 0x554778,
     transparent: true,
-    opacity: 0.42,
+    opacity: 0.1,
     depthWrite: false,
   });
   const mesh = new THREE.Mesh(geometry, material);
@@ -239,9 +254,18 @@ function createArenaFrame(): THREE.Group {
     new THREE.Vector3(-halfWidth, arena.height, halfDepth),
   ];
   const edges = [
-    [0, 1], [1, 2], [2, 3], [3, 0],
-    [4, 5], [5, 6], [6, 7], [7, 4],
-    [0, 4], [1, 5], [2, 6], [3, 7],
+    [0, 1],
+    [1, 2],
+    [2, 3],
+    [3, 0],
+    [4, 5],
+    [5, 6],
+    [6, 7],
+    [7, 4],
+    [0, 4],
+    [1, 5],
+    [2, 6],
+    [3, 7],
   ];
   const railMaterial = new THREE.MeshBasicMaterial({
     color: 0x8179ad,
@@ -256,11 +280,21 @@ function createArenaFrame(): THREE.Group {
   return group;
 }
 
-function createRail(start: THREE.Vector3, end: THREE.Vector3, material: THREE.Material): THREE.Mesh {
+function createRail(
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  material: THREE.Material,
+): THREE.Mesh {
   const direction = new THREE.Vector3().subVectors(end, start);
-  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.035, direction.length(), 0.035), material);
+  const rail = new THREE.Mesh(
+    new THREE.BoxGeometry(0.035, direction.length(), 0.035),
+    material,
+  );
   rail.position.copy(start).add(end).multiplyScalar(0.5);
-  rail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  rail.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction.normalize(),
+  );
   return rail;
 }
 
@@ -270,43 +304,48 @@ function createBarrierVolume(): THREE.Group {
   const height = arena.height;
   const group = new THREE.Group();
 
-  group.add(createWall(
-    new THREE.BoxGeometry(WALL_GEOMETRY_THICKNESS, height, arena.depth),
-    new THREE.Vector3(-halfWidth, height / 2, 0),
-    SIDE_WALL_TINT,
-  ));
-  group.add(createWall(
-    new THREE.BoxGeometry(WALL_GEOMETRY_THICKNESS, height, arena.depth),
-    new THREE.Vector3(halfWidth, height / 2, 0),
-    SIDE_WALL_TINT,
-  ));
-  group.add(createWall(
-    new THREE.BoxGeometry(arena.width, WALL_GEOMETRY_THICKNESS, arena.depth),
-    new THREE.Vector3(0, height, 0),
-    SIDE_WALL_TINT,
-  ));
-  group.add(createWall(
-    new THREE.BoxGeometry(arena.width, height, WALL_GEOMETRY_THICKNESS),
-    new THREE.Vector3(0, height / 2, -halfDepth),
-    SIDE_WALL_TINT,
-  ));
+  group.add(
+    createWall(
+      new THREE.BoxGeometry(WALL_GEOMETRY_THICKNESS, height, arena.depth),
+      new THREE.Vector3(-halfWidth, height / 2, 0),
+      SIDE_WALL_TINT,
+    ),
+  );
+  group.add(
+    createWall(
+      new THREE.BoxGeometry(WALL_GEOMETRY_THICKNESS, height, arena.depth),
+      new THREE.Vector3(halfWidth, height / 2, 0),
+      SIDE_WALL_TINT,
+    ),
+  );
+  group.add(
+    createWall(
+      new THREE.BoxGeometry(arena.width, WALL_GEOMETRY_THICKNESS, arena.depth),
+      new THREE.Vector3(0, height, 0),
+      SIDE_WALL_TINT,
+    ),
+  );
+  group.add(
+    createWall(
+      new THREE.BoxGeometry(arena.width, height, WALL_GEOMETRY_THICKNESS),
+      new THREE.Vector3(0, height / 2, -halfDepth),
+      SIDE_WALL_TINT,
+    ),
+  );
 
   return group;
 }
 
-function createWall(geometry: THREE.BoxGeometry, position: THREE.Vector3, tint: THREE.ColorRepresentation): THREE.Mesh {
-  const material = new THREE.MeshPhysicalMaterial({
+function createWall(
+  geometry: THREE.BoxGeometry,
+  position: THREE.Vector3,
+  tint: THREE.ColorRepresentation,
+): THREE.Mesh {
+  const material = new THREE.MeshBasicMaterial({
     color: tint,
     transparent: true,
     opacity: WALL_OPACITY,
     depthWrite: false,
-    roughness: WALL_ROUGHNESS,
-    metalness: 0,
-    transmission: WALL_TRANSMISSION,
-    thickness: WALL_THICKNESS,
-    ior: WALL_IOR,
-    clearcoat: WALL_CLEARCOAT,
-    clearcoatRoughness: WALL_CLEARCOAT_ROUGHNESS,
     side: THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(geometry, material);
@@ -315,7 +354,10 @@ function createWall(geometry: THREE.BoxGeometry, position: THREE.Vector3, tint: 
   return mesh;
 }
 
-function createPaddle(material: THREE.MeshStandardMaterial, rimIntensity: number): THREE.Mesh {
+function createPaddle(
+  material: THREE.MeshBasicMaterial,
+  rimIntensity: number,
+): THREE.Mesh {
   const geometry = new RoundedBoxGeometry(
     paddle.visibleSize.x,
     paddle.visibleSize.y,
@@ -348,7 +390,8 @@ function createPaddle(material: THREE.MeshStandardMaterial, rimIntensity: number
 
 function createPaddleRim(color: THREE.Color, intensity: number): THREE.Group {
   const group = new THREE.Group();
-  const thickness = Math.min(paddle.visibleSize.x, paddle.visibleSize.y) * 0.055;
+  const thickness =
+    Math.min(paddle.visibleSize.x, paddle.visibleSize.y) * 0.055;
   const depth = paddle.visibleSize.z * 1.08;
   const material = new THREE.MeshBasicMaterial({
     color: color.clone().multiplyScalar(intensity),
@@ -374,14 +417,20 @@ function createPaddleRim(color: THREE.Color, intensity: number): THREE.Group {
     thickness * 0.4,
   );
 
-  for (const y of [-(paddle.visibleSize.y - thickness) / 2, (paddle.visibleSize.y - thickness) / 2]) {
+  for (const y of [
+    -(paddle.visibleSize.y - thickness) / 2,
+    (paddle.visibleSize.y - thickness) / 2,
+  ]) {
     const rail = new THREE.Mesh(horizontalGeometry, material);
     rail.position.y = y;
     rail.renderOrder = 10;
     group.add(rail);
   }
 
-  for (const x of [-(paddle.visibleSize.x - thickness) / 2, (paddle.visibleSize.x - thickness) / 2]) {
+  for (const x of [
+    -(paddle.visibleSize.x - thickness) / 2,
+    (paddle.visibleSize.x - thickness) / 2,
+  ]) {
     const rail = new THREE.Mesh(verticalGeometry, material);
     rail.position.x = x;
     rail.renderOrder = 10;
@@ -391,21 +440,14 @@ function createPaddleRim(color: THREE.Color, intensity: number): THREE.Group {
   return group;
 }
 
-function createPaddleMaterial(color: THREE.ColorRepresentation): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({
+function createPaddleMaterial(
+  color: THREE.ColorRepresentation,
+): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
     color,
     transparent: true,
-    opacity: 1,
+    opacity: 0.08,
     depthWrite: false,
-    roughness: 0.12,
-    metalness: 0,
-    transmission: 0.95,
-    thickness: 0.26,
-    ior: 1.45,
-    clearcoat: 1,
-    clearcoatRoughness: 0.08,
-    emissive: color,
-    emissiveIntensity: 0.06,
   });
 }
 
@@ -440,10 +482,17 @@ function createBallTrail(): THREE.Mesh[] {
   });
 }
 
-function setPosition(object: THREE.Object3D, position: { x: number; y: number; z: number }): void {
+function setPosition(
+  object: THREE.Object3D,
+  position: { x: number; y: number; z: number },
+): void {
   object.position.set(position.x, position.y, position.z);
 }
 
-function toVector3(position: { x: number; y: number; z: number }): THREE.Vector3 {
+function toVector3(position: {
+  x: number;
+  y: number;
+  z: number;
+}): THREE.Vector3 {
   return new THREE.Vector3(position.x, position.y, position.z);
 }
