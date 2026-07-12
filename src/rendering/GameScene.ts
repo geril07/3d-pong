@@ -21,6 +21,7 @@ const WALL_GEOMETRY_THICKNESS = 0.0375;
 const ENVIRONMENT_BLUR = 0.04;
 const BACKDROP_ASPECT = 16 / 9;
 const BACKDROP_DISTANCE = 42;
+const CAMERA_VERTICAL_OFFSET_RATIO = 0.075;
 
 export class GameScene {
   readonly #renderer: THREE.WebGLRenderer;
@@ -56,8 +57,8 @@ export class GameScene {
     envScene.dispose?.();
 
     this.#camera = new THREE.PerspectiveCamera(54, 1, 0.1, 70);
-    this.#camera.position.set(0, 4.05, 11.1);
-    this.#camera.lookAt(0, 1.8, -1.6);
+    this.#camera.position.set(0, 2.5, 11.1);
+    this.#camera.lookAt(0, 2, -1.6);
 
     const backdropTexture = new THREE.TextureLoader().load(
       "/textures/cosmic-background.webp",
@@ -139,7 +140,14 @@ export class GameScene {
     const height = window.innerHeight;
 
     this.#camera.aspect = width / height;
-    this.#camera.updateProjectionMatrix();
+    this.#camera.setViewOffset(
+      width,
+      height,
+      0,
+      -height * CAMERA_VERTICAL_OFFSET_RATIO,
+      width,
+      height,
+    );
     this.#renderer.setSize(width, height, false);
     this.#composer?.setSize(width, height);
 
