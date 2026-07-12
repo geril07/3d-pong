@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -15,18 +16,18 @@ const FOG_FAR = 34;
 const TRAIL_LENGTH = 9;
 const BALL_EMISSIVE_COLOR = 0x2f4f85;
 const BALL_HIT_EMISSIVE_COLOR = 0x8fb9ff;
-const PADDLE_EMISSIVE_INTENSITY = 0.2;
+const PADDLE_EMISSIVE_INTENSITY = 0.08;
 const PADDLE_HIT_EMISSIVE_INTENSITY = 0.82;
 
-const WALL_OPACITY = 0.11;
-const WALL_TRANSMISSION = 0.94;
-const WALL_ROUGHNESS = 0.34;
+const WALL_OPACITY = 0.2;
+const WALL_TRANSMISSION = 0.78;
+const WALL_ROUGHNESS = 0.2;
 const WALL_THICKNESS = 0.05;
 const WALL_IOR = 1.36;
 const WALL_CLEARCOAT = 0.72;
 const WALL_CLEARCOAT_ROUGHNESS = 0.26;
-const WALL_EMISSIVE_INTENSITY = 0.1;
 const SIDE_WALL_TINT = 0x9186ff;
+const WALL_GEOMETRY_THICKNESS = 0.0375;
 const ENVIRONMENT_BLUR = 0.04;
 const BACKDROP_ASPECT = 16 / 9;
 const BACKDROP_DISTANCE = 42;
@@ -98,14 +99,14 @@ export class GameScene {
 
     this.#scene.add(createPlayfieldFloor());
     this.#scene.add(createBarrierVolume());
-    this.#scene.add(createArenaEdges());
+    this.#scene.add(createArenaFrame());
 
     this.#playerPaddleMaterial = createPaddleMaterial(0x45d7ff);
-    this.#playerPaddle = createPaddle(this.#playerPaddleMaterial);
+    this.#playerPaddle = createPaddle(this.#playerPaddleMaterial, 1.45);
     this.#scene.add(this.#playerPaddle);
 
     this.#opponentPaddleMaterial = createPaddleMaterial(0xff5edb);
-    this.#opponentPaddle = createPaddle(this.#opponentPaddleMaterial);
+    this.#opponentPaddle = createPaddle(this.#opponentPaddleMaterial, 2.8);
     this.#scene.add(this.#opponentPaddle);
 
     const ballGeometry = new THREE.SphereGeometry(ball.radius, 24, 16);
@@ -119,7 +120,8 @@ export class GameScene {
       this.#scene.add(trailPart);
     }
 
-    this.#composer = new EffectComposer(this.#renderer);
+    const renderTarget = new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType });
+    this.#composer = new EffectComposer(this.#renderer, renderTarget);
     this.#composer.addPass(new RenderPass(this.#scene, this.#camera));
     this.#composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.72, 0.48, 0.72));
     this.#composer.addPass(new OutputPass());
@@ -222,13 +224,44 @@ function createPlayfieldFloor(): THREE.Object3D {
   return mesh;
 }
 
-function createArenaEdges(): THREE.LineSegments {
-  const geometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(arena.width, arena.height, arena.depth));
-  const color = new THREE.Color(0x9e8cff).multiplyScalar(2.2);
-  const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.78, toneMapped: false });
-  const edges = new THREE.LineSegments(geometry, material);
-  edges.position.y = arena.height / 2;
-  return edges;
+function createArenaFrame(): THREE.Group {
+  const group = new THREE.Group();
+  const halfWidth = arena.width / 2;
+  const halfDepth = arena.depth / 2;
+  const corners = [
+    new THREE.Vector3(-halfWidth, 0, -halfDepth),
+    new THREE.Vector3(halfWidth, 0, -halfDepth),
+    new THREE.Vector3(halfWidth, 0, halfDepth),
+    new THREE.Vector3(-halfWidth, 0, halfDepth),
+    new THREE.Vector3(-halfWidth, arena.height, -halfDepth),
+    new THREE.Vector3(halfWidth, arena.height, -halfDepth),
+    new THREE.Vector3(halfWidth, arena.height, halfDepth),
+    new THREE.Vector3(-halfWidth, arena.height, halfDepth),
+  ];
+  const edges = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [4, 5], [5, 6], [6, 7], [7, 4],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ];
+  const railMaterial = new THREE.MeshBasicMaterial({
+    color: 0x8179ad,
+    transparent: true,
+    opacity: 0.76,
+  });
+
+  for (const [startIndex, endIndex] of edges) {
+    group.add(createRail(corners[startIndex], corners[endIndex], railMaterial));
+  }
+
+  return group;
+}
+
+function createRail(start: THREE.Vector3, end: THREE.Vector3, material: THREE.Material): THREE.Mesh {
+  const direction = new THREE.Vector3().subVectors(end, start);
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.035, direction.length(), 0.035), material);
+  rail.position.copy(start).add(end).multiplyScalar(0.5);
+  rail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  return rail;
 }
 
 function createBarrierVolume(): THREE.Group {
@@ -238,22 +271,22 @@ function createBarrierVolume(): THREE.Group {
   const group = new THREE.Group();
 
   group.add(createWall(
-    new THREE.BoxGeometry(0.05, height, arena.depth),
+    new THREE.BoxGeometry(WALL_GEOMETRY_THICKNESS, height, arena.depth),
     new THREE.Vector3(-halfWidth, height / 2, 0),
     SIDE_WALL_TINT,
   ));
   group.add(createWall(
-    new THREE.BoxGeometry(0.05, height, arena.depth),
+    new THREE.BoxGeometry(WALL_GEOMETRY_THICKNESS, height, arena.depth),
     new THREE.Vector3(halfWidth, height / 2, 0),
     SIDE_WALL_TINT,
   ));
   group.add(createWall(
-    new THREE.BoxGeometry(arena.width, 0.05, arena.depth),
+    new THREE.BoxGeometry(arena.width, WALL_GEOMETRY_THICKNESS, arena.depth),
     new THREE.Vector3(0, height, 0),
     SIDE_WALL_TINT,
   ));
   group.add(createWall(
-    new THREE.BoxGeometry(arena.width, height, 0.05),
+    new THREE.BoxGeometry(arena.width, height, WALL_GEOMETRY_THICKNESS),
     new THREE.Vector3(0, height / 2, -halfDepth),
     SIDE_WALL_TINT,
   ));
@@ -274,8 +307,6 @@ function createWall(geometry: THREE.BoxGeometry, position: THREE.Vector3, tint: 
     ior: WALL_IOR,
     clearcoat: WALL_CLEARCOAT,
     clearcoatRoughness: WALL_CLEARCOAT_ROUGHNESS,
-    emissive: tint,
-    emissiveIntensity: WALL_EMISSIVE_INTENSITY,
     side: THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(geometry, material);
@@ -284,34 +315,97 @@ function createWall(geometry: THREE.BoxGeometry, position: THREE.Vector3, tint: 
   return mesh;
 }
 
-function createPaddle(material: THREE.MeshStandardMaterial): THREE.Mesh {
-  const geometry = new THREE.BoxGeometry(paddle.visibleSize.x, paddle.visibleSize.y, paddle.visibleSize.z);
-  const mesh = new THREE.Mesh(geometry, material);
-  const edgeColor = material.color.clone().multiplyScalar(2.4);
-  const edges = new THREE.LineSegments(
-    new THREE.EdgesGeometry(geometry),
-    new THREE.LineBasicMaterial({ color: edgeColor, toneMapped: false, transparent: true, opacity: 0.9 }),
+function createPaddle(material: THREE.MeshStandardMaterial, rimIntensity: number): THREE.Mesh {
+  const geometry = new RoundedBoxGeometry(
+    paddle.visibleSize.x,
+    paddle.visibleSize.y,
+    paddle.visibleSize.z,
+    3,
+    Math.min(paddle.visibleSize.x, paddle.visibleSize.y) * 0.08,
   );
-  mesh.add(edges);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.add(createPaddleRim(material.color, rimIntensity));
+
+  const pane = new THREE.Mesh(
+    new RoundedBoxGeometry(
+      paddle.visibleSize.x * 0.84,
+      paddle.visibleSize.y * 0.78,
+      paddle.visibleSize.z * 0.34,
+      2,
+      Math.min(paddle.visibleSize.x, paddle.visibleSize.y) * 0.04,
+    ),
+    new THREE.MeshBasicMaterial({
+      color: material.color,
+      transparent: true,
+      opacity: 0.11,
+      depthWrite: false,
+    }),
+  );
+  mesh.add(pane);
 
   return mesh;
+}
+
+function createPaddleRim(color: THREE.Color, intensity: number): THREE.Group {
+  const group = new THREE.Group();
+  const thickness = Math.min(paddle.visibleSize.x, paddle.visibleSize.y) * 0.055;
+  const depth = paddle.visibleSize.z * 1.08;
+  const material = new THREE.MeshBasicMaterial({
+    color: color.clone().multiplyScalar(intensity),
+    transparent: true,
+    opacity: 0.82,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+  });
+  const horizontalGeometry = new RoundedBoxGeometry(
+    paddle.visibleSize.x,
+    thickness,
+    depth,
+    2,
+    thickness * 0.4,
+  );
+  const verticalGeometry = new RoundedBoxGeometry(
+    thickness,
+    paddle.visibleSize.y - thickness * 2,
+    depth,
+    2,
+    thickness * 0.4,
+  );
+
+  for (const y of [-(paddle.visibleSize.y - thickness) / 2, (paddle.visibleSize.y - thickness) / 2]) {
+    const rail = new THREE.Mesh(horizontalGeometry, material);
+    rail.position.y = y;
+    rail.renderOrder = 10;
+    group.add(rail);
+  }
+
+  for (const x of [-(paddle.visibleSize.x - thickness) / 2, (paddle.visibleSize.x - thickness) / 2]) {
+    const rail = new THREE.Mesh(verticalGeometry, material);
+    rail.position.x = x;
+    rail.renderOrder = 10;
+    group.add(rail);
+  }
+
+  return group;
 }
 
 function createPaddleMaterial(color: THREE.ColorRepresentation): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({
     color,
     transparent: true,
-    opacity: 0.66,
+    opacity: 1,
     depthWrite: false,
-    roughness: 0.22,
+    roughness: 0.12,
     metalness: 0,
-    transmission: 0.42,
-    thickness: 0.18,
-    ior: 1.36,
+    transmission: 0.95,
+    thickness: 0.26,
+    ior: 1.45,
     clearcoat: 1,
-    clearcoatRoughness: 0.16,
+    clearcoatRoughness: 0.08,
     emissive: color,
-    emissiveIntensity: PADDLE_EMISSIVE_INTENSITY,
+    emissiveIntensity: 0.06,
   });
 }
 
