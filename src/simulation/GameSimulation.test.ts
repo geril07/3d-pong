@@ -387,13 +387,11 @@ describe("stepGame", () => {
     );
   });
 
-  it("resets the ball and both paddles after a score", () => {
+  it("continues both scoring-frame paddle updates while resetting only the rally", () => {
     const playerPlane = DEFAULT_GAME_CONFIG.arena.depth / 2 + DEFAULT_GAME_CONFIG.arena.scoringPlaneOffset;
-    const movedState = {
-      ...withBall(RUNNING_STATE, {
-        position: { x: 1, y: 2, z: playerPlane - 0.01 },
-        velocity: { x: 0, y: 0, z: 1 },
-      }),
+    const playerMovement = { playerMovement: { x: 0.2, y: -0.1 } };
+    const movedState: GameState = {
+      ...RUNNING_STATE,
       playerPaddle: {
         ...RUNNING_STATE.playerPaddle,
         position: { x: 2, y: 2.2, z: RUNNING_STATE.playerPaddle.position.z },
@@ -408,21 +406,73 @@ describe("stepGame", () => {
         target: { x: 1.8, y: 2.4 },
       },
     };
+    const scoringState = withBall(movedState, {
+      position: { x: 1, y: 2, z: playerPlane - 0.01 },
+      velocity: { x: 0, y: 0, z: 1 },
+    });
+    const controlState = withBall(movedState, {
+      position: { x: 1, y: 2, z: 0 },
+      velocity: { x: 0, y: 0, z: 1 },
+    });
 
-    const next = stepGame(movedState, EMPTY_INPUT, 0.05);
+    const next = stepGame(scoringState, playerMovement, 0.05);
+    const uninterrupted = stepGame(controlState, playerMovement, 0.05);
     const reset = createInitialGameState();
+    const opponentCenter = centerOf(DEFAULT_GAME_CONFIG.paddle.opponentArea);
 
     expect(next.phase).toBe("serve-delay");
     expect(next.serveTimerSeconds).toBe(DEFAULT_GAME_CONFIG.serve.delaySeconds);
     expect(next.ball.position).toEqual(reset.ball.position);
     expect(next.ball.velocity).toEqual({ x: 0, y: 0, z: 0 });
-    expect(next.playerTarget).toEqual({ x: reset.playerPaddle.position.x, y: reset.playerPaddle.position.y });
-    expect(next.playerPaddle).toEqual(reset.playerPaddle);
-    expect(next.opponentPaddle).toEqual(reset.opponentPaddle);
-    expect(next.bot).toEqual(reset.bot);
+    expect(next.playerTarget).toEqual(uninterrupted.playerTarget);
+    expect(next.playerPaddle).toEqual(uninterrupted.playerPaddle);
+    expect(next.opponentPaddle).toEqual(uninterrupted.opponentPaddle);
+    expect(next.bot.target).toEqual({ x: opponentCenter.x, y: opponentCenter.y });
     expect(next.events).toContainEqual(
       expect.objectContaining({ type: "score", scoringSide: "opponent", lostSide: "player" }),
     );
+  });
+
+  it("moves the bot toward its original center throughout the serve delay", () => {
+    const area = DEFAULT_GAME_CONFIG.paddle.opponentArea;
+    const center = centerOf(area);
+    const initial = createInitialGameState();
+    const config: GameConfig = {
+      ...serveAimConfig({ x: 1, y: 1 }),
+      bot: {
+        ...DEFAULT_GAME_CONFIG.bot,
+        reactionSeconds: 0,
+        trackingError: 0,
+      },
+    };
+    const scored: GameState = {
+      ...initial,
+      phase: "serve-delay",
+      phaseBeforePause: "serve-delay",
+      nextServeToward: "opponent",
+      serveTimerSeconds: 0.1,
+      opponentPaddle: {
+        ...initial.opponentPaddle,
+        position: { x: area.minX, y: area.minY, z: area.z },
+        velocity: { x: 1.4, y: 0.8, z: 0 },
+      },
+      bot: { target: { x: center.x, y: center.y } },
+    };
+
+    const waiting = stepGame(scored, EMPTY_INPUT, 0.05, config);
+    const served = stepGame(waiting, EMPTY_INPUT, 0.05, config);
+    const tracking = stepGame(served, EMPTY_INPUT, 0.05, config);
+
+    expect(waiting.phase).toBe("serve-delay");
+    expect(distance2D(waiting.opponentPaddle.position, center)).toBeLessThan(
+      distance2D(scored.opponentPaddle.position, center),
+    );
+    expect(served.phase).toBe("running");
+    expect(distance2D(served.opponentPaddle.position, center)).toBeLessThan(
+      distance2D(waiting.opponentPaddle.position, center),
+    );
+    expect(speedOf(served.opponentPaddle.velocity)).toBeGreaterThan(0);
+    expect(distance2D(tracking.bot.target, center)).toBeGreaterThan(0);
   });
 
   it("serves automatically after the configured delay toward the side that lost the point", () => {
@@ -544,22 +594,45 @@ describe("stepGame", () => {
 
   it("ends the match when either side reaches the target score", () => {
     const playerPlane = DEFAULT_GAME_CONFIG.arena.depth / 2 + DEFAULT_GAME_CONFIG.arena.scoringPlaneOffset;
-    const state = withBall(
-      {
-        ...RUNNING_STATE,
-        score: { player: 0, opponent: DEFAULT_GAME_CONFIG.score.target - 1 },
+    const playerMovement = { playerMovement: { x: 0.15, y: -0.08 } };
+    const baseState: GameState = {
+      ...RUNNING_STATE,
+      score: { player: 0, opponent: DEFAULT_GAME_CONFIG.score.target - 1 },
+      playerPaddle: {
+        ...RUNNING_STATE.playerPaddle,
+        position: { x: 1.6, y: 2.1, z: RUNNING_STATE.playerPaddle.position.z },
+        velocity: { x: 2, y: -1, z: 0 },
       },
+      opponentPaddle: {
+        ...RUNNING_STATE.opponentPaddle,
+        position: { x: -1.3, y: 1.1, z: RUNNING_STATE.opponentPaddle.position.z },
+        velocity: { x: -1, y: 0.7, z: 0 },
+      },
+      bot: { target: { x: 1.2, y: 2.5 } },
+    };
+    const state = withBall(
+      baseState,
       {
         position: { x: 0, y: 1.5, z: playerPlane - 0.01 },
         velocity: { x: 0, y: 0, z: 1 },
       },
     );
+    const controlState = withBall(baseState, {
+      position: { x: 0, y: 1.5, z: 0 },
+      velocity: { x: 0, y: 0, z: 1 },
+    });
 
-    const next = stepGame(state, EMPTY_INPUT, 0.05);
+    const next = stepGame(state, playerMovement, 0.05);
+    const uninterrupted = stepGame(controlState, playerMovement, 0.05);
+    const stopped = stepGame(next, playerMovement, 0.05);
 
     expect(next.phase).toBe("match-over");
     expect(next.winner).toBe("opponent");
     expect(next.score.opponent).toBe(DEFAULT_GAME_CONFIG.score.target);
+    expect(next.playerPaddle).toEqual(uninterrupted.playerPaddle);
+    expect(next.opponentPaddle).toEqual(uninterrupted.opponentPaddle);
+    expect(stopped.playerPaddle).toEqual(next.playerPaddle);
+    expect(stopped.opponentPaddle).toEqual(next.opponentPaddle);
   });
 
   it("restarts a completed match without reloading", () => {

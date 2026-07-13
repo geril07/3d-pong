@@ -387,7 +387,15 @@ export function stepGame(
   const scoreEvent = getScoreEvent(ball, config);
 
   if (scoreEvent) {
-    return applyScore(state, scoreEvent, dt, config);
+    return applyScore(
+      state,
+      scoreEvent,
+      playerTarget,
+      playerPaddle,
+      botStep.paddle,
+      dt,
+      config,
+    );
   }
 
   return {
@@ -410,6 +418,16 @@ function stepServeDelay(
   config: GameConfig,
 ): GameState {
   const serveTimerSeconds = Math.max(state.serveTimerSeconds - deltaSeconds, 0);
+  const opponentPaddle = movePaddle(
+    state.opponentPaddle,
+    {
+      x: state.bot.target.x - state.opponentPaddle.position.x,
+      y: state.bot.target.y - state.opponentPaddle.position.y,
+    },
+    deltaSeconds,
+    config,
+    config.bot.maxSpeed,
+  );
 
   if (serveTimerSeconds > SERVE_TIMER_EPSILON) {
     return {
@@ -418,10 +436,7 @@ function stepServeDelay(
       serveTimerSeconds,
       playerTarget,
       playerPaddle,
-      opponentPaddle: {
-        ...state.opponentPaddle,
-        velocity: { x: 0, y: 0, z: 0 },
-      },
+      opponentPaddle,
       events: [],
     };
   }
@@ -438,10 +453,7 @@ function stepServeDelay(
       velocity: createServeVelocity(state.nextServeToward, config),
     },
     playerPaddle,
-    opponentPaddle: {
-      ...state.opponentPaddle,
-      velocity: { x: 0, y: 0, z: 0 },
-    },
+    opponentPaddle,
     events: [{ type: "serve", toward: state.nextServeToward }],
   };
 }
@@ -449,11 +461,12 @@ function stepServeDelay(
 function applyScore(
   state: GameState,
   scoreEvent: Extract<GameEvent, { type: "score" }>,
+  playerTarget: Vector2,
+  playerPaddle: PaddleState,
+  opponentPaddle: PaddleState,
   deltaSeconds: number,
   config: GameConfig,
 ): GameState {
-  const playerPaddle = createPaddle(config.paddle.playerArea);
-  const opponentPaddle = createPaddle(config.paddle.opponentArea);
   const score = {
     ...state.score,
     [scoreEvent.scoringSide]: state.score[scoreEvent.scoringSide] + 1,
@@ -474,10 +487,7 @@ function applyScore(
       ...createResetBall(config),
       radius: state.ball.radius,
     },
-    playerTarget: {
-      x: playerPaddle.position.x,
-      y: playerPaddle.position.y,
-    },
+    playerTarget,
     playerPaddle,
     opponentPaddle,
     bot: createBotState(config.paddle.opponentArea),
