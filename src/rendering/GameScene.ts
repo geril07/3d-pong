@@ -9,6 +9,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import type { GameSnapshot } from "../simulation/GameRuntime";
 import { DEFAULT_GAME_CONFIG } from "../simulation/GameSimulation";
 import { ARENA_BLOOM_LAYER, createArenaRoom } from "./ArenaRoom";
+import { createBallVisual, type BallVisual } from "./BallVisual";
 import { createPaddleMesh } from "./PaddleVisual";
 
 const { arena, ball, paddle } = DEFAULT_GAME_CONFIG;
@@ -20,7 +21,6 @@ const SCORE_FLASH_BACKGROUND_COLOR = 0x4c3577;
 const FOG_NEAR = 16;
 const FOG_FAR = 34;
 const TRAIL_LENGTH = 9;
-const BALL_EMISSIVE_COLOR = 0x001122;
 const ENVIRONMENT_BLUR = 0.04;
 const BACKDROP_ASPECT = 16 / 9;
 const BACKDROP_DISTANCE = 42;
@@ -33,10 +33,10 @@ export class GameScene {
   readonly #composer: EffectComposer;
   readonly #bloomComposer: EffectComposer;
   readonly #backdrop: THREE.Sprite;
-  readonly #ball: THREE.Mesh;
+  readonly #ballVisual: BallVisual;
+  readonly #ball: THREE.Group;
   readonly #playerPaddle: THREE.Mesh;
   readonly #opponentPaddle: THREE.Mesh;
-  #trail: THREE.Mesh[];
   #trailPositions: THREE.Vector3[] = [];
   #lastTrailPosition: THREE.Vector3 | null = null;
   #scoreFlashUntilSeconds = 0;
@@ -102,22 +102,11 @@ export class GameScene {
     this.#opponentPaddle = createPaddleMesh(paddle, 0xff5edb, 0.4);
     this.#scene.add(this.#opponentPaddle);
 
-    const ballGeometry = new THREE.SphereGeometry(ball.radius, 24, 16);
-    this.#ball = new THREE.Mesh(
-      ballGeometry,
-      new THREE.MeshStandardMaterial({
-        color: 0x075b73,
-        emissive: BALL_EMISSIVE_COLOR,
-        transparent: true,
-      }),
-    );
+    this.#ballVisual = createBallVisual(ball.radius);
+    this.#ball = this.#ballVisual.ball;
     this.#ball.renderOrder = 1;
     this.#scene.add(this.#ball);
-    this.#trail = createBallTrail();
-
-    for (const trailPart of this.#trail) {
-      this.#scene.add(trailPart);
-    }
+    this.#scene.add(this.#ballVisual.trail);
 
     const finalRenderTarget = new THREE.WebGLRenderTarget(1, 1, {
       samples: 4,
@@ -223,7 +212,6 @@ export class GameScene {
     setPosition(this.#ball, snapshot.ball.position);
     setPosition(this.#playerPaddle, snapshot.playerPaddle.position);
     setPosition(this.#opponentPaddle, snapshot.opponentPaddle.position);
-    this.#ball.rotation.y = snapshot.activeTimeSeconds * 1.5;
 
     const nowSeconds = performance.now() / 1000;
     const isScoreFlashActive = nowSeconds < this.#scoreFlashUntilSeconds;
@@ -268,37 +256,12 @@ export class GameScene {
       this.#lastTrailPosition = currentPosition;
     }
 
-    for (let index = 0; index < this.#trail.length; index += 1) {
-      const trailPart = this.#trail[index];
-      const trailPosition = this.#trailPositions[index];
-
-      trailPart.visible =
-        Boolean(trailPosition) && snapshot.phase !== "serve-delay";
-
-      if (trailPosition) {
-        trailPart.position.copy(trailPosition);
-      }
-    }
+    this.#ballVisual.update(
+      this.#trailPositions,
+      snapshot.phase !== "serve-delay",
+      snapshot.activeTimeSeconds,
+    );
   }
-}
-
-function createBallTrail(): THREE.Mesh[] {
-  return Array.from({ length: TRAIL_LENGTH }, (_, index) => {
-    const falloff = 1 - index / TRAIL_LENGTH;
-    const geometry = new THREE.SphereGeometry(ball.radius, 16, 8);
-    const material = new THREE.MeshBasicMaterial({
-      color: 0x62cfff,
-      transparent: true,
-      opacity: falloff * 0.46,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.scale.setScalar(0.42 + falloff * 0.58);
-    mesh.visible = false;
-
-    return mesh;
-  });
 }
 
 function setPosition(
