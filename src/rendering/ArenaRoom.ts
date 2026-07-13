@@ -197,7 +197,10 @@ function createFrame(arena: ArenaConfig): THREE.Group {
     );
   }
 
-  group.renderOrder = 5;
+  // ponytail: renderOrder goes on each rail, not the Group. The Group's
+  // renderOrder cascades to children as groupOrder (the primary sort key
+  // in three.js), which would push the rails above the paddle rim
+  // (renderOrder 10) and paint them over the paddle's border.
   return group;
 }
 
@@ -224,6 +227,7 @@ function createRail(
 
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   const rail = new THREE.Mesh(geometry, material);
+  rail.renderOrder = 5;
   rail.position.copy(start).add(end).multiplyScalar(0.5);
   rail.quaternion.setFromUnitVectors(
     new THREE.Vector3(0, 1, 0),
