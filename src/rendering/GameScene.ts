@@ -4,12 +4,17 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import type { GameSnapshot } from "../simulation/GameRuntime";
 import { DEFAULT_GAME_CONFIG } from "../simulation/GameSimulation";
-import { createArenaRoom } from "./ArenaRoom";
+import { ARENA_BLOOM_LAYER, createArenaRoom } from "./ArenaRoom";
 
 const { arena, ball, paddle } = DEFAULT_GAME_CONFIG;
+const ARENA_BLOOM_STRENGTH = 0.12;
+const ARENA_BLOOM_RADIUS = 0.5;
+const ARENA_BLOOM_THRESHOLD = 0.8;
 const SCENE_BACKGROUND_COLOR = 0x37285c;
 const SCORE_FLASH_BACKGROUND_COLOR = 0x4c3577;
 const FOG_NEAR = 16;
@@ -26,6 +31,7 @@ export class GameScene {
   readonly #scene: THREE.Scene;
   readonly #camera: THREE.PerspectiveCamera;
   readonly #composer: EffectComposer;
+  readonly #bloomComposer: EffectComposer;
   readonly #backdrop: THREE.Sprite;
   readonly #playerPaddleMaterial: THREE.MeshBasicMaterial;
   readonly #opponentPaddleMaterial: THREE.MeshBasicMaterial;
@@ -117,15 +123,67 @@ export class GameScene {
       this.#scene.add(trailPart);
     }
 
-    const renderTarget = new THREE.WebGLRenderTarget(1, 1, {
+    const finalRenderTarget = new THREE.WebGLRenderTarget(1, 1, {
       samples: 4,
       type: THREE.HalfFloatType,
     });
-    this.#composer = new EffectComposer(this.#renderer, renderTarget);
-    this.#composer.addPass(new RenderPass(this.#scene, this.#camera));
-    this.#composer.addPass(
-      new UnrealBloomPass(new THREE.Vector2(1, 1), 0.72, 0.48, 0.72),
+    this.#composer = new EffectComposer(this.#renderer, finalRenderTarget);
+
+    const bloomRenderTarget = new THREE.WebGLRenderTarget(1, 1, {
+      type: THREE.HalfFloatType,
+    });
+    this.#bloomComposer = new EffectComposer(this.#renderer, bloomRenderTarget);
+    this.#bloomComposer.renderToScreen = false;
+    this.#bloomComposer.addPass(
+      new RenderPass(
+        this.#scene,
+        this.#camera,
+        null,
+        new THREE.Color(0x000000),
+        0,
+      ),
     );
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(1, 1),
+      ARENA_BLOOM_STRENGTH,
+      ARENA_BLOOM_RADIUS,
+      ARENA_BLOOM_THRESHOLD,
+    );
+    this.#bloomComposer.addPass(bloomPass);
+
+    const mixPass = new ShaderPass(
+      new THREE.ShaderMaterial({
+        uniforms: {
+          baseTexture: { value: null },
+          bloomTexture: {
+            // Use bloom-only composite so the thick continuity mask never
+            // replaces the visible arena rail.
+            value: bloomPass.renderTargetsHorizontal[0].texture,
+          },
+        },
+        vertexShader: `
+          varying vec2 passUv;
+
+          void main() {
+            passUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D baseTexture;
+          uniform sampler2D bloomTexture;
+          varying vec2 passUv;
+
+          void main() {
+            gl_FragColor = texture2D(baseTexture, passUv) + texture2D(bloomTexture, passUv);
+          }
+        `,
+      }),
+      "baseTexture",
+    );
+    this.#composer.addPass(new RenderPass(this.#scene, this.#camera));
+    this.#composer.addPass(mixPass);
+    this.#composer.addPass(new SMAAPass());
     this.#composer.addPass(new OutputPass());
 
     this.resize();
@@ -145,7 +203,8 @@ export class GameScene {
       height,
     );
     this.#renderer.setSize(width, height, false);
-    this.#composer?.setSize(width, height);
+    this.#composer.setSize(width, height);
+    this.#bloomComposer.setSize(width, height);
 
     const viewportHeight =
       2 *
@@ -183,6 +242,9 @@ export class GameScene {
     );
     this.#playerPaddle.scale.setScalar(isGameplayActive ? 1 : 0.96);
 
+    this.#camera.layers.set(ARENA_BLOOM_LAYER);
+    this.#bloomComposer.render();
+    this.#camera.layers.set(0);
     this.#composer.render();
   }
 
