@@ -2,6 +2,8 @@
 
 Arcade-style 3D Pong built with `TypeScript`, `Vite`, and `three.js`.
 
+https://github.com/user-attachments/assets/e6a5f7c4-6630-4957-8748-e60c9d0f77a0
+
 ## Features
 
 - Mouse-controlled player paddle with pointer lock input
