@@ -297,7 +297,9 @@ describe("stepGame", () => {
     expect(crossedPlane.score.opponent).toBe(1);
     expect(crossedPlane.phase).toBe("serve-delay");
     expect(crossedPlane.nextServeToward).toBe("player");
-    expect(crossedPlane.events).toContainEqual({ type: "score", scoringSide: "opponent", lostSide: "player" });
+    expect(crossedPlane.events).toContainEqual(
+      expect.objectContaining({ type: "score", scoringSide: "opponent", lostSide: "player" }),
+    );
   });
 
   it("does not score while the ball center is exactly on either Scoring Plane", () => {
@@ -327,6 +329,33 @@ describe("stepGame", () => {
     expect(atOpponentPlane.phase).toBe("running");
   });
 
+  it("emits the exact crossing ball state so score visuals can continue its trajectory", () => {
+    const playerPlane = DEFAULT_GAME_CONFIG.arena.depth / 2 + DEFAULT_GAME_CONFIG.arena.scoringPlaneOffset;
+    const radius = DEFAULT_GAME_CONFIG.ball.radius;
+    const crossed = stepGame(
+      withBall(RUNNING_STATE, {
+        position: { x: 0.4, y: 1.5, z: playerPlane - 0.01 },
+        velocity: { x: 0.4, y: 0.2, z: 1 },
+      }),
+      EMPTY_INPUT,
+      0.05,
+    );
+
+    const scoreEvent = crossed.events.find((event) => event.type === "score");
+    expect(scoreEvent).toMatchObject({
+      type: "score",
+      scoringSide: "opponent",
+      lostSide: "player",
+      exitBall: {
+        velocity: { x: 0.4, y: 0.2, z: 1 },
+        radius,
+      },
+    });
+    expect(scoreEvent?.type === "score" ? scoreEvent.exitBall.position.x : NaN).toBeCloseTo(0.42);
+    expect(scoreEvent?.type === "score" ? scoreEvent.exitBall.position.y : NaN).toBeCloseTo(1.51);
+    expect(scoreEvent?.type === "score" ? scoreEvent.exitBall.position.z : NaN).toBeCloseTo(playerPlane + 0.04);
+  });
+
   it("scores for the player only after the ball crosses the opponent Scoring Plane", () => {
     const opponentPlane = -DEFAULT_GAME_CONFIG.arena.depth / 2 - DEFAULT_GAME_CONFIG.arena.scoringPlaneOffset;
     const beforePlane = stepGame(
@@ -353,7 +382,9 @@ describe("stepGame", () => {
     expect(crossedPlane.score.player).toBe(1);
     expect(crossedPlane.phase).toBe("serve-delay");
     expect(crossedPlane.nextServeToward).toBe("opponent");
-    expect(crossedPlane.events).toContainEqual({ type: "score", scoringSide: "player", lostSide: "opponent" });
+    expect(crossedPlane.events).toContainEqual(
+      expect.objectContaining({ type: "score", scoringSide: "player", lostSide: "opponent" }),
+    );
   });
 
   it("resets the ball and both paddles after a score", () => {
@@ -389,7 +420,9 @@ describe("stepGame", () => {
     expect(next.playerPaddle).toEqual(reset.playerPaddle);
     expect(next.opponentPaddle).toEqual(reset.opponentPaddle);
     expect(next.bot).toEqual(reset.bot);
-    expect(next.events).toEqual([{ type: "score", scoringSide: "opponent", lostSide: "player" }]);
+    expect(next.events).toContainEqual(
+      expect.objectContaining({ type: "score", scoringSide: "opponent", lostSide: "player" }),
+    );
   });
 
   it("serves automatically after the configured delay toward the side that lost the point", () => {

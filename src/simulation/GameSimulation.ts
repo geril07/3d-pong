@@ -121,6 +121,7 @@ export type GameEvent = Readonly<{
   type: "score";
   scoringSide: Side;
   lostSide: Side;
+  exitBall: BallState;
 }> | Readonly<{
   type: "serve";
   toward: Side;
@@ -489,11 +490,21 @@ function getScoreEvent(ball: BallState, config: GameConfig): Extract<GameEvent, 
   const opponentScoringPlane = -config.arena.depth / 2 - config.arena.scoringPlaneOffset;
 
   if (ball.position.z > playerScoringPlane) {
-    return { type: "score", scoringSide: "opponent", lostSide: "player" };
+    return {
+      type: "score",
+      scoringSide: "opponent",
+      lostSide: "player",
+      exitBall: ball,
+    };
   }
 
   if (ball.position.z < opponentScoringPlane) {
-    return { type: "score", scoringSide: "player", lostSide: "opponent" };
+    return {
+      type: "score",
+      scoringSide: "player",
+      lostSide: "opponent",
+      exitBall: ball,
+    };
   }
 
   return null;

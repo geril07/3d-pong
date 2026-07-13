@@ -10,6 +10,7 @@ import type { GameSnapshot } from "../simulation/GameRuntime";
 import { DEFAULT_GAME_CONFIG } from "../simulation/GameSimulation";
 import { ARENA_BLOOM_LAYER, createArenaRoom } from "./ArenaRoom";
 import { createBallVisual, type BallVisual } from "./BallVisual";
+import { createGoalEffect, type GoalEffect } from "./GoalEffect";
 import { createPaddleMesh } from "./PaddleVisual";
 
 const { arena, ball, paddle } = DEFAULT_GAME_CONFIG;
@@ -34,6 +35,7 @@ export class GameScene {
   readonly #bloomComposer: EffectComposer;
   readonly #backdrop: THREE.Sprite;
   readonly #ballVisual: BallVisual;
+  readonly #goalEffect: GoalEffect;
   readonly #ball: THREE.Group;
   readonly #playerPaddle: THREE.Mesh;
   readonly #opponentPaddle: THREE.Mesh;
@@ -107,6 +109,8 @@ export class GameScene {
     this.#ball.renderOrder = 1;
     this.#scene.add(this.#ball);
     this.#scene.add(this.#ballVisual.trail);
+    this.#goalEffect = createGoalEffect(ball.radius);
+    this.#scene.add(this.#goalEffect.group);
 
     const finalRenderTarget = new THREE.WebGLRenderTarget(1, 1, {
       samples: 4,
@@ -214,6 +218,7 @@ export class GameScene {
     setPosition(this.#opponentPaddle, snapshot.opponentPaddle.position);
 
     const nowSeconds = performance.now() / 1000;
+    const isGoalEffectActive = this.#goalEffect.update(nowSeconds);
     const isScoreFlashActive = nowSeconds < this.#scoreFlashUntilSeconds;
     const isGameplayActive =
       snapshot.phase === "running" || snapshot.phase === "serve-delay";
@@ -225,6 +230,7 @@ export class GameScene {
       1,
     );
     this.#playerPaddle.scale.setScalar(isGameplayActive ? 1 : 0.96);
+    this.#ball.visible = !isGoalEffectActive;
 
     this.#camera.layers.set(ARENA_BLOOM_LAYER);
     this.#bloomComposer.render();
@@ -240,6 +246,11 @@ export class GameScene {
         this.#scoreFlashUntilSeconds = nowSeconds + 0.42;
         this.#trailPositions = [];
         this.#lastTrailPosition = null;
+        this.#goalEffect.trigger(
+          toVector3(event.exitBall.position),
+          toVector3(event.exitBall.velocity),
+          nowSeconds,
+        );
       }
     }
   }
