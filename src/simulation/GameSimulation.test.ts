@@ -18,6 +18,25 @@ import {
 
 const RUNNING_STATE = createRunningState();
 
+describe("DEFAULT_GAME_CONFIG", () => {
+  it("keeps both complete Forgiving Hitboxes inside the arena at every movement edge", () => {
+    const { arena, collision, paddle } = DEFAULT_GAME_CONFIG;
+    const halfWidth = paddle.visibleSize.x / 2 + collision.forgivingHitbox.x;
+    const halfHeight = paddle.visibleSize.y / 2 + collision.forgivingHitbox.y;
+    const halfDepth = paddle.visibleSize.z / 2 + collision.forgivingHitbox.z;
+    const epsilon = 1e-9;
+
+    for (const area of [paddle.playerArea, paddle.opponentArea]) {
+      expect(area.minX - halfWidth).toBeGreaterThanOrEqual(-arena.width / 2 - epsilon);
+      expect(area.maxX + halfWidth).toBeLessThanOrEqual(arena.width / 2 + epsilon);
+      expect(area.minY - halfHeight).toBeGreaterThanOrEqual(-epsilon);
+      expect(area.maxY + halfHeight).toBeLessThanOrEqual(arena.height + epsilon);
+      expect(area.z - halfDepth).toBeGreaterThanOrEqual(-arena.depth / 2 - epsilon);
+      expect(area.z + halfDepth).toBeLessThanOrEqual(arena.depth / 2 + epsilon);
+    }
+  });
+});
+
 describe("createGameConfig", () => {
   it("scales the complete ball speed profile and compensates bot timing", () => {
     const config = createGameConfig({ difficulty: "medium", ballSpeed: 2 });

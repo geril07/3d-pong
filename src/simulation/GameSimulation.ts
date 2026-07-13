@@ -32,6 +32,7 @@ export type MovementArea = Readonly<{
 
 export type PaddleConfig = Readonly<{
   visibleSize: Vector3;
+  edgeGlowWidth: number;
   maxSpeed: number;
   velocitySmoothing: number;
   playerArea: MovementArea;
@@ -151,13 +152,42 @@ export type GameState = Readonly<{
 
 export type GameSnapshot = GameState;
 
-export const DEFAULT_GAME_CONFIG: GameConfig = {
-  arena: {
-    width: 9.36,
-    height: 4.608,
-    depth: 9.2,
-    scoringPlaneOffset: 0.45,
+const DEFAULT_ARENA: ArenaConfig = {
+  width: 9.36,
+  height: 4.608,
+  depth: 9.2,
+  scoringPlaneOffset: 0.45,
+};
+
+const DEFAULT_PADDLE_VISIBLE_SIZE: Vector3 = {
+  x: 0.9,
+  y: 0.6,
+  z: 0.12,
+};
+
+const DEFAULT_PADDLE_EDGE_GLOW_WIDTH = 0.14;
+
+const DEFAULT_COLLISION: CollisionConfig = {
+  forgivingHitbox: {
+    x: 0.08,
+    y: 0.05,
+    z: 0.03,
   },
+  bufferZone: {
+    x: 0.45,
+    y: 0.3,
+    z: 0.25,
+  },
+  contactInfluenceX: 0.85,
+  contactInfluenceY: 0.65,
+  dragDirectionInfluence: 0.055,
+  dragSpeedThreshold: 1.1,
+  dragSpeedBonusPerVelocity: 0.18,
+  maxDragSpeedBonus: 1.25,
+};
+
+export const DEFAULT_GAME_CONFIG: GameConfig = {
+  arena: DEFAULT_ARENA,
   ball: {
     radius: 0.13,
     serveSpeed: 4.5,
@@ -168,46 +198,14 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     serveY: 0.18,
   },
   paddle: {
-    visibleSize: {
-      x: 0.9,
-      y: 0.6,
-      z: 0.12,
-    },
+    visibleSize: DEFAULT_PADDLE_VISIBLE_SIZE,
+    edgeGlowWidth: DEFAULT_PADDLE_EDGE_GLOW_WIDTH,
     maxSpeed: 8,
     velocitySmoothing: 0.7,
-    playerArea: {
-      minX: -4.23,
-      maxX: 4.23,
-      minY: 0.3,
-      maxY: 4.308,
-      z: 4.35,
-    },
-    opponentArea: {
-      minX: -4.23,
-      maxX: 4.23,
-      minY: 0.3,
-      maxY: 4.308,
-      z: -4.35,
-    },
+    playerArea: createPaddleMovementArea(4.35),
+    opponentArea: createPaddleMovementArea(-4.35),
   },
-  collision: {
-    forgivingHitbox: {
-      x: 0.08,
-      y: 0.05,
-      z: 0.03,
-    },
-    bufferZone: {
-      x: 0.45,
-      y: 0.3,
-      z: 0.25,
-    },
-    contactInfluenceX: 0.85,
-    contactInfluenceY: 0.65,
-    dragDirectionInfluence: 0.055,
-    dragSpeedThreshold: 1.1,
-    dragSpeedBonusPerVelocity: 0.18,
-    maxDragSpeedBonus: 1.25,
-  },
+  collision: DEFAULT_COLLISION,
   bot: {
     maxSpeed: 5.4,
     reactionSeconds: 0.18,
@@ -228,6 +226,25 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     }),
   },
 };
+
+function createPaddleMovementArea(z: number): MovementArea {
+  const halfWidth = DEFAULT_PADDLE_VISIBLE_SIZE.x / 2 + Math.max(
+    DEFAULT_COLLISION.forgivingHitbox.x,
+    DEFAULT_PADDLE_EDGE_GLOW_WIDTH,
+  );
+  const halfHeight = DEFAULT_PADDLE_VISIBLE_SIZE.y / 2 + Math.max(
+    DEFAULT_COLLISION.forgivingHitbox.y,
+    DEFAULT_PADDLE_EDGE_GLOW_WIDTH,
+  );
+
+  return {
+    minX: -DEFAULT_ARENA.width / 2 + halfWidth,
+    maxX: DEFAULT_ARENA.width / 2 - halfWidth,
+    minY: halfHeight,
+    maxY: DEFAULT_ARENA.height - halfHeight,
+    z,
+  };
+}
 
 const BOT_DIFFICULTIES: Readonly<Record<BotDifficulty, BotConfig>> = {
   easy: { maxSpeed: 3.2, reactionSeconds: 0.45, trackingError: 0.75 },
